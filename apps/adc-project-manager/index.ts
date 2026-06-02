@@ -8,7 +8,11 @@ export default class AdcProjectManagerApp extends AppWithSeo {
 		this.registerSeo({
 			sitemap: { paths: [{ path: "/", changefreq: "monthly", priority: 0.6 }] },
 			pageMeta: {
-				defaults: { robots: "noindex,nofollow", og: { siteName: "Abby's Digital Cafe" } },
+				defaults: {
+					robots: "noindex,nofollow",
+					og: { siteName: "Abby's Digital Cafe" },
+					ogBrand: { background: "#e5f4ff", color: "#263690", brandName: "ADC Projects" },
+				},
 				pages: [
 					{
 						path: "/",
