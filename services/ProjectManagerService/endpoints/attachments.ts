@@ -18,7 +18,7 @@ export class IssueAttachmentsEndpoints {
 	private static kernelKey: symbol;
 
 	static init(service: ProjectManagerService, kernelKey: symbol): void {
-		IssueAttachmentsEndpoints.service??= service;
+		IssueAttachmentsEndpoints.service ??= service;
 		IssueAttachmentsEndpoints.kernelKey ??= kernelKey;
 	}
 
