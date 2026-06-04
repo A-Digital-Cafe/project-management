@@ -33,6 +33,7 @@ import { DraftsRepository, getOrCreateCommentDraftModel } from "@utilities/comme
 import type InternalS3Provider from "@providers/object/internal-s3-provider/index.js";
 import { issueAttachmentsChecker } from "./permissions/issueAttachments.ts";
 import { issueCommentsChecker } from "./permissions/issueComments.ts";
+import { createPMTierResolver } from "./utils/tier-resolver.ts";
 import { ProjectManagerError as ProjectManagerErrorRef } from "@common/types/custom-errors/ProjectManagerError.ts";
 
 export default class ProjectManagerService extends BaseService {
@@ -82,18 +83,31 @@ export default class ProjectManagerService extends BaseService {
 		await this.waitForMongo();
 
 		this.#identity = this.#kernelRef.registry.getService<IdentityManagerService>("IdentityManagerService");
-		this.#internalRoles = this.#identity?._internal(kernelKey).roles ?? null;
+		const internalIdentity = this.#identity?._internal(kernelKey) ?? null;
+		this.#internalRoles = internalIdentity?.roles ?? null;
+		// Resolver de tiers: usuarios → tier de cuenta; orgs → tier de organización.
+		const tierResolver = createPMTierResolver(
+			internalIdentity?.users ?? { getUser: async () => null },
+			internalIdentity?.organizations ?? { getOrganization: async () => null }
+		);
 
 		const ProjectModel = this.mongoProvider.createModel<Project>("projects", projectSchema);
 		const SprintModel = this.mongoProvider.createModel<Sprint>("sprints", sprintSchema);
 		const MilestoneModel = this.mongoProvider.createModel<Milestone>("milestones", milestoneSchema);
 		const IssueModel = this.mongoProvider.createModel<Issue>("issues", issueSchema);
 
-		this.#projectManager = new ProjectManager(ProjectModel, kernelKey, this.logger, this.#getAuthVerifier);
+		this.#projectManager = new ProjectManager(ProjectModel, kernelKey, this.logger, tierResolver, this.#getAuthVerifier);
 		const projectInternals = this.#projectManager.getInternals(kernelKey);
-		this.#sprintManager = new SprintManager(SprintModel, projectInternals, this.logger, this.#getAuthVerifier);
-		this.#milestoneManager = new MilestoneManager(MilestoneModel, projectInternals, this.logger, this.#getAuthVerifier);
-		this.#issueManager = new IssueManager(IssueModel, projectInternals, kernelKey, this.logger, this.#getAuthVerifier);
+		this.#sprintManager = new SprintManager(SprintModel, projectInternals, kernelKey, this.logger, tierResolver, this.#getAuthVerifier);
+		this.#milestoneManager = new MilestoneManager(
+			MilestoneModel,
+			projectInternals,
+			kernelKey,
+			this.logger,
+			tierResolver,
+			this.#getAuthVerifier
+		);
+		this.#issueManager = new IssueManager(IssueModel, projectInternals, kernelKey, this.logger, tierResolver, this.#getAuthVerifier);
 		this.#organizationRequestManager = new OrganizationRequestManager(
 			this.#projectManager,
 			this.#issueManager,
@@ -298,6 +312,58 @@ export default class ProjectManagerService extends BaseService {
 		await super.stop(kernelKey);
 		this.#authVerifier = null;
 		this.logger.logOk("ProjectManagerService detenido");
+	}
+
+	/**
+	 * Purga en cascada los datos PRIVADOS de un usuario tras expirar su retención
+	 * (invocado por IdentityManagerService). Borra SÓLO sus proyectos privados
+	 * (`visibility=private`, `ownerId=userId`) y, en cascada, sus issues (con
+	 * adjuntos y comentarios), sprints y milestones. Los tableros de organización
+	 * a los que pertenezca quedan intactos (no se consultan aquí).
+	 *
+	 * Protegido por `@OnlyKernel()`: requiere la `kernelKey` del kernel.
+	 */
+	@OnlyKernel()
+	async purgeUserPrivateData(kernelKey: symbol, userId: string): Promise<void> {
+		if (!userId) return;
+		const projectIds = await this.projects.listPrivateProjectIdsByOwner(kernelKey, userId);
+		if (projectIds.length === 0) return;
+
+		for (const projectId of projectIds) {
+			// Issues + sus adjuntos ("pm-issue") y comentarios (targetType "pm-issue").
+			let issueIds: string[] = [];
+			try {
+				issueIds = await this.issues.listIssueIdsByProject(kernelKey, projectId);
+			} catch (e) {
+				this.logger.logWarn(`Purga PM: no se pudieron listar issues de ${projectId}: ${(e as Error).message}`);
+			}
+			for (const issueId of issueIds) {
+				if (this.#issueCommentsManager) {
+					try {
+						await this.#issueCommentsManager.purgeByTarget(kernelKey, "pm-issue", issueId);
+					} catch (e) {
+						this.logger.logWarn(`Purga PM: comentarios de issue ${issueId}: ${(e as Error).message}`);
+					}
+				}
+				if (this.#issueAttachmentsManager) {
+					try {
+						await this.#issueAttachmentsManager.forceDeleteByOwner(kernelKey, "pm-issue", issueId);
+					} catch (e) {
+						this.logger.logWarn(`Purga PM: adjuntos de issue ${issueId}: ${(e as Error).message}`);
+					}
+				}
+			}
+			try {
+				await this.issues.forceDeleteByProject(kernelKey, projectId);
+				await this.sprints.forceDeleteByProject(kernelKey, projectId);
+				await this.milestones.forceDeleteByProject(kernelKey, projectId);
+			} catch (e) {
+				this.logger.logWarn(`Purga PM: cascada de ${projectId}: ${(e as Error).message}`);
+			}
+		}
+
+		const removed = await this.projects.forceDeleteProjects(kernelKey, projectIds);
+		this.logger.logInfo(`Purga PM: ${removed} proyecto(s) privado(s) del usuario ${userId} eliminados en cascada`);
 	}
 
 	private async waitForMongo(): Promise<void> {

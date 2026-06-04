@@ -6,9 +6,9 @@ import { type AuthVerifierGetter, PermissionChecker } from "@common/types/auth-v
 import { PMScopes, PM_RESOURCE_NAME } from "@common/types/project-manager/permissions.ts";
 import { CRUDXAction } from "@common/types/Actions.ts";
 import { ProjectManagerError } from "@common/types/custom-errors/ProjectManagerError.ts";
-import { getPMTierLimits } from "@common/types/project-manager/tier-limits.ts";
 import type { CallerMembership, ProjectInternals } from "./projects.ts";
 import type { Project } from "@common/types/project-manager/Project.ts";
+import type { PMTierResolver } from "../utils/tier-resolver.ts";
 import {
 	docToPlain,
 	fetchEntityWithProject,
@@ -22,13 +22,17 @@ const MILESTONE_IMMUTABLE_FIELDS = ["id", "projectId", "createdAt"] as const;
 
 export class MilestoneManager {
 	readonly #permissionChecker: PermissionChecker;
+	readonly #kernelKey: symbol;
 
 	constructor(
 		private readonly milestoneModel: Model<Milestone>,
 		private readonly projectInternals: ProjectInternals,
+		kernelKey: symbol,
 		private readonly logger: ILogger,
+		private readonly tierResolver: PMTierResolver,
 		getAuthVerifier: AuthVerifierGetter = () => null
 	) {
+		this.#kernelKey = kernelKey;
 		this.#permissionChecker = new PermissionChecker(getAuthVerifier, "MilestoneManager", PM_RESOURCE_NAME);
 	}
 
@@ -57,7 +61,7 @@ export class MilestoneManager {
 			allowIf: projectOwnerAllowIf(project, caller),
 		});
 
-		const { maxMilestonesPerProject } = getPMTierLimits();
+		const { maxMilestonesPerProject } = await this.tierResolver.projectLimits(project);
 		const count = await this.milestoneModel.countDocuments({ projectId });
 		if (count >= maxMilestonesPerProject) {
 			throw new ProjectManagerError(403, "TIER_LIMIT_REACHED", `Límite de milestones por proyecto alcanzado (${maxMilestonesPerProject})`);
@@ -123,5 +127,12 @@ export class MilestoneManager {
 		const result = await this.milestoneModel.deleteOne({ id: milestoneId });
 		if (result.deletedCount === 0) throw new ProjectManagerError(404, "MILESTONE_NOT_FOUND", `Milestone ${milestoneId} no encontrado`);
 		this.logger.logDebug(`Milestone ${milestoneId} eliminado`);
+	}
+
+	/** Borra todos los milestones de un proyecto. Uso interno (purga de cuenta), protegido por `kernelKey`. */
+	async forceDeleteByProject(kernelKey: symbol, projectId: string): Promise<number> {
+		if (kernelKey !== this.#kernelKey) throw new Error("Acceso denegado: kernel key inválida");
+		const res = await this.milestoneModel.deleteMany({ projectId });
+		return res.deletedCount ?? 0;
 	}
 }

@@ -1,5 +1,6 @@
 import { RegisterEndpoint, type EndpointCtx } from "@services/core/EndpointManagerService/index.js";
 import { ProjectManagerError } from "@common/types/custom-errors/ProjectManagerError.ts";
+import { AuthorizationError } from "@common/types/custom-errors/AuthorizationError.ts";
 import type { CreateOrganizationRequestInput, OrganizationRequestSocialNetwork } from "@common/types/project-manager/OrganizationRequest.ts";
 import type ProjectManagerService from "../index.js";
 
@@ -98,7 +99,7 @@ export class OrganizationRequestEndpoints {
 		options: { rateLimit: ORG_REQUEST_RATE_LIMIT },
 	})
 	static async create(ctx: EndpointCtx<never, CreateOrganizationRequestInput>) {
-		if (!ctx.user?.id) throw new ProjectManagerError(401, "NO_TOKEN", "Debes iniciar sesión para solicitar una organización");
+		if (!ctx.user?.id) throw new AuthorizationError("Debes iniciar sesión para solicitar una organización", "NO_TOKEN");
 
 		const input = normalizeInput(ctx.data);
 		return OrganizationRequestEndpoints.service.organizationRequests.create(OrganizationRequestEndpoints.kernelKey, input, {

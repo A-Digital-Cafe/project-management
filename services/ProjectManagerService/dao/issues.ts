@@ -14,7 +14,7 @@ import { sanitizeBlocks } from "@common/utils/blocks/sanitize.ts";
 import { isProjectAccessibleInOrgContext, isProjectMember } from "../utils/project-access.ts";
 import type { ProjectInternals, CallerMembership } from "./projects.ts";
 import type { Project } from "@common/types/project-manager/Project.ts";
-import { getPMTierLimits } from "@common/types/project-manager/tier-limits.ts";
+import type { PMTierResolver } from "../utils/tier-resolver.ts";
 import { docToPlain, findByIdAsPlain, projectOwnerAllowIf, stripImmutableFields } from "./shared.ts";
 
 const ISSUE_IMMUTABLE_FIELDS = ["id", "projectId", "key", "createdAt", "reporterId", "updateLog", "attachments"] as const;
@@ -65,6 +65,7 @@ export class IssueManager {
 		private readonly projectInternals: ProjectInternals,
 		kernelKey: symbol,
 		private readonly logger: ILogger,
+		private readonly tierResolver: PMTierResolver,
 		getAuthVerifier: AuthVerifierGetter = () => null
 	) {
 		this.#kernelKey = kernelKey;
@@ -85,7 +86,7 @@ export class IssueManager {
 	}
 
 	async #createWithReporter(project: Project, input: Partial<Issue> & Pick<Issue, "title">, reporterId: string): Promise<Issue> {
-		const { maxIssuesPerProject } = getPMTierLimits();
+		const { maxIssuesPerProject } = await this.tierResolver.projectLimits(project);
 		const count = await this.issueModel.countDocuments({ projectId: project.id });
 		if (count >= maxIssuesPerProject) {
 			throw new ProjectManagerError(403, "TIER_LIMIT_REACHED", `Límite de issues por proyecto alcanzado (${maxIssuesPerProject})`);
@@ -273,5 +274,19 @@ export class IssueManager {
 		);
 		if (!updated) throw new ProjectManagerError(404, "ISSUE_NOT_FOUND", `Issue ${issueId} no encontrado`);
 		return normalizeIssueDescription(docToPlain<Issue>(updated)!);
+	}
+
+	/** IDs de issues de un proyecto. Uso interno (purga de cuenta), protegido por `kernelKey`. */
+	async listIssueIdsByProject(kernelKey: symbol, projectId: string): Promise<string[]> {
+		if (kernelKey !== this.#kernelKey) throw new Error("Acceso denegado: kernel key inválida");
+		const docs = await this.issueModel.find({ projectId }, { id: 1 }).lean<{ id: string }[]>();
+		return docs.map((d) => d.id);
+	}
+
+	/** Borra todos los issues de un proyecto. Uso interno (purga de cuenta), protegido por `kernelKey`. */
+	async forceDeleteByProject(kernelKey: symbol, projectId: string): Promise<number> {
+		if (kernelKey !== this.#kernelKey) throw new Error("Acceso denegado: kernel key inválida");
+		const res = await this.issueModel.deleteMany({ projectId });
+		return res.deletedCount ?? 0;
 	}
 }

@@ -1,5 +1,6 @@
 import { RegisterEndpoint, type EndpointCtx } from "@services/core/EndpointManagerService/index.js";
 import { ProjectManagerError } from "@common/types/custom-errors/ProjectManagerError.ts";
+import { AuthorizationError } from "@common/types/custom-errors/AuthorizationError.ts";
 import type { CreateSupportTicketInput, SupportTicketType } from "@common/types/project-manager/SupportTicket.ts";
 import { SUPPORT_TICKET_VALIDATORS, validateStringField, TICKET_TYPE_LABELS } from "@common/types/project-manager/SupportTicket.ts";
 import type ProjectManagerService from "../index.js";
@@ -109,7 +110,7 @@ export class SupportTicketEndpoints {
 		options: { rateLimit: SUPPORT_TICKET_RATE_LIMIT },
 	})
 	static async create(ctx: EndpointCtx<never, CreateSupportTicketInput>) {
-		if (!ctx.user?.id) throw new ProjectManagerError(401, "NO_TOKEN", "Debes iniciar sesión para crear un ticket de soporte");
+		if (!ctx.user?.id) throw new AuthorizationError("Debes iniciar sesión para crear un ticket de soporte", "NO_TOKEN");
 		const input = normalizeInput(ctx.data);
 
 		return SupportTicketEndpoints.service.supportTickets.create(SupportTicketEndpoints.kernelKey, input, {

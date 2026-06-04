@@ -1,5 +1,6 @@
 import { RegisterEndpoint, type EndpointCtx } from "@services/core/EndpointManagerService/index.js";
 import { ProjectManagerError } from "@common/types/custom-errors/ProjectManagerError.ts";
+import { AuthorizationError } from "@common/types/custom-errors/AuthorizationError.ts";
 import type ProjectManagerService from "../index.js";
 import type { Block } from "@common/ADC/types/learning.ts";
 import { buildIssueResourceCtx } from "./utils/issueResourceCtx.ts";
@@ -39,7 +40,7 @@ async function assertCanEditDescription(service: ProjectManagerService, kernelKe
 		// admin/PM de la org se resuelve async — aplazar al chequeo extra.
 		allowed = await built.commentCtx.pmCtx.isOrgAdminOrPM(built.project.orgId);
 	}
-	if (!allowed) throw new ProjectManagerError(403, "FORBIDDEN", "No tienes permiso para editar la descripción de este issue");
+	if (!allowed) throw new AuthorizationError("No tienes permiso para editar la descripción de este issue", "FORBIDDEN");
 	return built;
 }
 

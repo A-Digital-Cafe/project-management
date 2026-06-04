@@ -8,7 +8,7 @@ import { PMScopes, PM_RESOURCE_NAME } from "@common/types/project-manager/permis
 import { CRUDXAction } from "@common/types/Actions.ts";
 import { ProjectManagerError } from "@common/types/custom-errors/ProjectManagerError.ts";
 import { filterVisibleProjects, isProjectMember } from "../utils/project-access.ts";
-import { getPMTierLimits } from "@common/types/project-manager/tier-limits.ts";
+import type { PMTierResolver } from "../utils/tier-resolver.ts";
 import { docToPlain, stripImmutableFields } from "./shared.ts";
 
 /** Campos que nunca deben mutarse vía un PUT genérico. */
@@ -74,6 +74,7 @@ export class ProjectManager {
 		private readonly projectModel: Model<Project>,
 		kernelKey: symbol,
 		private readonly logger: ILogger,
+		private readonly tierResolver: PMTierResolver,
 		getAuthVerifier: AuthVerifierGetter = () => null
 	) {
 		this.#kernelKey = kernelKey;
@@ -161,7 +162,8 @@ export class ProjectManager {
 
 	async #enforcePrivateProjectLimit(userId: string): Promise<void> {
 		if (!userId) return;
-		const { maxPrivateProjectsPerUser } = getPMTierLimits();
+		// Recurso personal → tier del usuario dueño.
+		const { maxPrivateProjectsPerUser } = await this.tierResolver.userLimits(userId);
 		const count = await this.projectModel.countDocuments({ visibility: "private", ownerId: userId });
 		if (count >= maxPrivateProjectsPerUser) {
 			throw new ProjectManagerError(403, "TIER_LIMIT_REACHED", `Límite de proyectos privados alcanzado (${maxPrivateProjectsPerUser})`);
@@ -169,7 +171,8 @@ export class ProjectManager {
 	}
 
 	async #enforceOrgProjectLimit(orgId: string): Promise<void> {
-		const { maxProjectsPerOrg } = getPMTierLimits();
+		// Recurso de organización → tier de la organización.
+		const { maxProjectsPerOrg } = await this.tierResolver.orgLimits(orgId);
 		const count = await this.projectModel.countDocuments({ orgId });
 		if (count >= maxProjectsPerOrg) {
 			throw new ProjectManagerError(403, "TIER_LIMIT_REACHED", `Límite de proyectos de la organización alcanzado (${maxProjectsPerOrg})`);
@@ -288,5 +291,28 @@ export class ProjectManager {
 			fetchProject: (id) => this.#fetchProject(id),
 			incrementIssueCounter: (id) => this.#incrementIssueCounter(id),
 		};
+	}
+
+	/**
+	 * IDs de los proyectos privados de un usuario. Uso interno (purga de cuenta
+	 * tras retención): sin autorización, protegido por `kernelKey`.
+	 */
+	async listPrivateProjectIdsByOwner(_kernelKey: symbol, ownerId: string): Promise<string[]> {
+		if (_kernelKey !== this.#kernelKey) throw new Error("Acceso denegado: kernel key inválida");
+		if (!ownerId) return [];
+		const docs = await this.projectModel.find({ visibility: "private", ownerId }, { id: 1 }).lean<{ id: string }[]>();
+		return docs.map((d) => d.id);
+	}
+
+	/**
+	 * Borrado definitivo de proyectos por id. Uso interno (purga de cuenta):
+	 * sin autorización, protegido por `kernelKey`. Las cascadas (issues, sprints,
+	 * milestones, adjuntos, comentarios) las orquesta el service.
+	 */
+	async forceDeleteProjects(_kernelKey: symbol, projectIds: string[]): Promise<number> {
+		if (_kernelKey !== this.#kernelKey) throw new Error("Acceso denegado: kernel key inválida");
+		if (projectIds.length === 0) return 0;
+		const res = await this.projectModel.deleteMany({ id: { $in: projectIds } });
+		return res.deletedCount ?? 0;
 	}
 }

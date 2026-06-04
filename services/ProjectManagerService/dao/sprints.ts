@@ -6,9 +6,9 @@ import { type AuthVerifierGetter, PermissionChecker } from "@common/types/auth-v
 import { PMScopes, PM_RESOURCE_NAME } from "@common/types/project-manager/permissions.ts";
 import { CRUDXAction } from "@common/types/Actions.ts";
 import { ProjectManagerError } from "@common/types/custom-errors/ProjectManagerError.ts";
-import { getPMTierLimits } from "@common/types/project-manager/tier-limits.ts";
 import type { CallerMembership, ProjectInternals } from "./projects.ts";
 import type { Project } from "@common/types/project-manager/Project.ts";
+import type { PMTierResolver } from "../utils/tier-resolver.ts";
 import {
 	docToPlain,
 	fetchEntityWithProject,
@@ -22,13 +22,17 @@ const SPRINT_IMMUTABLE_FIELDS = ["id", "projectId", "createdAt"] as const;
 
 export class SprintManager {
 	readonly #permissionChecker: PermissionChecker;
+	readonly #kernelKey: symbol;
 
 	constructor(
 		private readonly sprintModel: Model<Sprint>,
 		private readonly projectInternals: ProjectInternals,
+		kernelKey: symbol,
 		private readonly logger: ILogger,
+		private readonly tierResolver: PMTierResolver,
 		getAuthVerifier: AuthVerifierGetter = () => null
 	) {
+		this.#kernelKey = kernelKey;
 		this.#permissionChecker = new PermissionChecker(getAuthVerifier, "SprintManager", PM_RESOURCE_NAME);
 	}
 
@@ -48,7 +52,7 @@ export class SprintManager {
 			allowIf: projectOwnerAllowIf(project, caller),
 		});
 
-		const { maxSprintsPerProject } = getPMTierLimits();
+		const { maxSprintsPerProject } = await this.tierResolver.projectLimits(project);
 		const count = await this.sprintModel.countDocuments({ projectId });
 		if (count >= maxSprintsPerProject) {
 			throw new ProjectManagerError(403, "TIER_LIMIT_REACHED", `Límite de sprints por proyecto alcanzado (${maxSprintsPerProject})`);
@@ -132,5 +136,12 @@ export class SprintManager {
 		if (!updated) throw new ProjectManagerError(404, "SPRINT_NOT_FOUND", `Sprint ${sprintId} no encontrado`);
 		this.logger.logDebug(`Sprint ${sprintId} → ${status}`);
 		return docToPlain<Sprint>(updated)!;
+	}
+
+	/** Borra todos los sprints de un proyecto. Uso interno (purga de cuenta), protegido por `kernelKey`. */
+	async forceDeleteByProject(kernelKey: symbol, projectId: string): Promise<number> {
+		if (kernelKey !== this.#kernelKey) throw new Error("Acceso denegado: kernel key inválida");
+		const res = await this.sprintModel.deleteMany({ projectId });
+		return res.deletedCount ?? 0;
 	}
 }
