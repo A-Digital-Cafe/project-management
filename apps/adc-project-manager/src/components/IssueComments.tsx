@@ -137,7 +137,7 @@ export function IssueComments({ issueId, caller, canComment = true, canModerate 
 						if (!detail.parentId) {
 							setRootDraftBlocks([]);
 							setRootDraftAttachmentIds([]);
-							void pmApi.deleteIssueCommentDraft(issueId, { parentId: null, editingCommentId: null });
+							pmApi.deleteIssueCommentDraft(issueId, { parentId: null, editingCommentId: null });
 						}
 					}
 				}

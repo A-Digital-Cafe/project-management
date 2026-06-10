@@ -279,7 +279,7 @@ export function IssueDialog({ project, issue, perms, caller, sprints = [], miles
 									setDraftAttachmentIds([]);
 									setHasUnsavedDraft(false);
 									setDescEditing(false);
-									if (issue) void pmApi.deleteIssueDescriptionDraft(issue.id);
+									if (issue) pmApi.deleteIssueDescriptionDraft(issue.id);
 								}}
 								onadcSubmit={async (ev) => {
 									const d = ev.detail;
@@ -297,7 +297,7 @@ export function IssueDialog({ project, issue, perms, caller, sprints = [], miles
 									setHasUnsavedDraft(false);
 									setDescEditing(false);
 									if (issue) {
-										void pmApi.deleteIssueDescriptionDraft(issue.id);
+										pmApi.deleteIssueDescriptionDraft(issue.id);
 										await onSaved();
 									}
 								}}
@@ -310,12 +310,12 @@ export function IssueDialog({ project, issue, perms, caller, sprints = [], miles
 									if (nextBlocks.length === 0 && d.attachmentIds.length === 0) {
 										setHasUnsavedDraft(false);
 										setDraftDescription(null);
-										void pmApi.deleteIssueDescriptionDraft(issue.id);
+										pmApi.deleteIssueDescriptionDraft(issue.id);
 									} else {
 										setHasUnsavedDraft(true);
 										setDraftDescription(nextBlocks);
 										setDraftAttachmentIds(d.attachmentIds);
-										void pmApi.saveIssueDescriptionDraft(issue.id, {
+										pmApi.saveIssueDescriptionDraft(issue.id, {
 											blocks: nextBlocks,
 											attachmentIds: d.attachmentIds,
 										});
