@@ -2,6 +2,7 @@ import type ProjectManagerService from "../../index.js";
 import type { IssueAttachmentEndpointCtx } from "../../permissions/issueAttachments.ts";
 import type { Block } from "@common/ADC/types/learning.ts";
 import { sanitizeBlocks, extractAttachmentIdsFromBlocks } from "@common/utils/blocks/sanitize.ts";
+import { assertOwnedAttachments } from "@common/utils/blocks/attachment-ownership.ts";
 import { ProjectManagerError } from "@common/types/custom-errors/ProjectManagerError.ts";
 import { ISSUE_DESCRIPTION_MAX_BLOCKS } from "../../dao/issues.ts";
 
@@ -30,13 +31,7 @@ export async function validateAndSanitizeIssueDescription(
 		);
 	}
 	const found = await service.issueAttachments.getMany(attachmentCtx as any, attachmentIds);
-	if (found.length !== attachmentIds.length) {
-		throw new ProjectManagerError(400, "ISSUE_DESCRIPTION_BAD_ATTACHMENT", "Adjunto inválido o no autorizado");
-	}
-	for (const att of found) {
-		if (att.uploadedBy !== attachmentCtx.userId) {
-			throw new ProjectManagerError(403, "ISSUE_DESCRIPTION_ATTACHMENT_NOT_OWNED", "Solo puedes referenciar adjuntos que subiste");
-		}
-	}
+	// Regla compartida: existencia + uploader == autor (ver @common/utils/blocks/attachment-ownership)
+	assertOwnedAttachments({ requestedIds: attachmentIds, found, userId: attachmentCtx.userId, errorPrefix: "ISSUE_DESCRIPTION" });
 	return blocks;
 }
