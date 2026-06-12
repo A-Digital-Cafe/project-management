@@ -2,6 +2,8 @@ import { RegisterEndpoint, type EndpointCtx } from "@services/core/EndpointManag
 import { ProjectManagerError } from "@common/types/custom-errors/ProjectManagerError.ts";
 import type ProjectManagerService from "../index.js";
 import { buildIssueResourceCtx } from "./utils/issueResourceCtx.ts";
+import * as AS from "./schemas/attachments.js";
+import { IdParams, OkResponse, AttachmentDto } from "./schemas/common.js";
 
 const ATT_RATE_LIMIT = { max: 30, timeWindow: 60_000 };
 
@@ -26,6 +28,11 @@ export class IssueAttachmentsEndpoints {
 		method: "GET",
 		url: "/api/pm/issues/:id/attachments",
 		deferAuth: true,
+		options: {
+			tag: "ProjectManagerService/Attachments",
+			summary: "Lista los adjuntos de un issue",
+			schema: { params: IdParams, response: { 200: AS.AttachmentsListResponse } },
+		},
 	})
 	static async list(ctx: EndpointCtx<{ id: string }>) {
 		const svc = IssueAttachmentsEndpoints.service;
@@ -38,7 +45,13 @@ export class IssueAttachmentsEndpoints {
 		method: "POST",
 		url: "/api/pm/issues/:id/attachments/presign-upload",
 		deferAuth: true,
-		options: { rateLimit: ATT_RATE_LIMIT },
+		options: {
+			rateLimit: ATT_RATE_LIMIT,
+			tag: "ProjectManagerService/Attachments",
+			summary: "Genera una URL firmada para subir un adjunto",
+			description: "Con `forComment: true` el adjunto se asocia a un comentario en vez del issue.",
+			schema: { params: IdParams, body: AS.PresignBody, response: { 200: AS.PresignResponse } },
+		},
 	})
 	static async presign(ctx: EndpointCtx<{ id: string }, PresignBody>) {
 		if (!ctx.data?.fileName || !ctx.data?.mimeType || typeof ctx.data?.size !== "number") {
@@ -60,7 +73,12 @@ export class IssueAttachmentsEndpoints {
 		method: "POST",
 		url: "/api/pm/issues/:id/attachments/:attachmentId/confirm",
 		deferAuth: true,
-		options: { rateLimit: ATT_RATE_LIMIT },
+		options: {
+			rateLimit: ATT_RATE_LIMIT,
+			tag: "ProjectManagerService/Attachments",
+			summary: "Confirma la subida de un adjunto",
+			schema: { params: AS.IdAttachmentParams, response: { 200: AttachmentDto } },
+		},
 	})
 	static async confirm(ctx: EndpointCtx<{ id: string; attachmentId: string }>) {
 		const svc = IssueAttachmentsEndpoints.service;
@@ -73,6 +91,11 @@ export class IssueAttachmentsEndpoints {
 		method: "GET",
 		url: "/api/pm/issues/:id/attachments/:attachmentId/download",
 		deferAuth: true,
+		options: {
+			tag: "ProjectManagerService/Attachments",
+			summary: "Obtiene una URL firmada de descarga de un adjunto",
+			schema: { params: AS.IdAttachmentParams, querystring: AS.DownloadQuery, response: { 200: AS.DownloadResponse } },
+		},
 	})
 	static async download(ctx: EndpointCtx<{ id: string; attachmentId: string }>) {
 		const svc = IssueAttachmentsEndpoints.service;
@@ -91,7 +114,12 @@ export class IssueAttachmentsEndpoints {
 		method: "DELETE",
 		url: "/api/pm/issues/:id/attachments/:attachmentId",
 		deferAuth: true,
-		options: { rateLimit: ATT_RATE_LIMIT },
+		options: {
+			rateLimit: ATT_RATE_LIMIT,
+			tag: "ProjectManagerService/Attachments",
+			summary: "Elimina un adjunto",
+			schema: { params: AS.IdAttachmentParams, response: { 200: OkResponse } },
+		},
 	})
 	static async delete(ctx: EndpointCtx<{ id: string; attachmentId: string }>) {
 		const svc = IssueAttachmentsEndpoints.service;

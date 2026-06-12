@@ -4,6 +4,8 @@ import type ProjectManagerService from "../index.js";
 import type { Block } from "@common/ADC/types/learning.ts";
 import type { CommentLabel, CommentsPage } from "@common/types/comments/Comment.ts";
 import { buildIssueResourceCtx } from "./utils/issueResourceCtx.ts";
+import * as CS from "./schemas/comments.js";
+import { IdParams, OkResponse } from "./schemas/common.js";
 
 const COMMENT_RATE_LIMIT = { max: 30, timeWindow: 60_000 };
 const REACT_RATE_LIMIT = { max: 60, timeWindow: 60_000 };
@@ -91,6 +93,12 @@ export class IssueCommentsEndpoints {
 		method: "GET",
 		url: "/api/pm/issues/:id/comments",
 		deferAuth: true,
+		options: {
+			tag: "ProjectManagerService/Comments",
+			summary: "Lista los comentarios de un issue",
+			description: "Sin `parentId` devuelve todos en flat; `parentId` vacío/null = raíces; con valor = replies de ese padre.",
+			schema: { params: IdParams, querystring: CS.ListCommentsQuery, response: { 200: CS.CommentsPageResponse } },
+		},
 	})
 	static async list(ctx: EndpointCtx<{ id: string }>) {
 		const svc = IssueCommentsEndpoints.service;
@@ -116,6 +124,11 @@ export class IssueCommentsEndpoints {
 		method: "GET",
 		url: "/api/pm/issues/:id/comments/threads/:rootId",
 		deferAuth: true,
+		options: {
+			tag: "ProjectManagerService/Comments",
+			summary: "Obtiene un hilo de comentarios",
+			schema: { params: CS.IdRootParams, querystring: CS.ThreadQuery, response: { 200: CS.CommentsPageResponse } },
+		},
 	})
 	static async thread(ctx: EndpointCtx<{ id: string; rootId: string }>) {
 		const svc = IssueCommentsEndpoints.service;
@@ -130,6 +143,11 @@ export class IssueCommentsEndpoints {
 		method: "GET",
 		url: "/api/pm/issues/:id/comments/count",
 		deferAuth: true,
+		options: {
+			tag: "ProjectManagerService/Comments",
+			summary: "Cuenta los comentarios de un issue",
+			schema: { params: IdParams, response: { 200: CS.CommentCountResponse } },
+		},
 	})
 	static async count(ctx: EndpointCtx<{ id: string }>) {
 		const svc = IssueCommentsEndpoints.service;
@@ -142,7 +160,12 @@ export class IssueCommentsEndpoints {
 		method: "POST",
 		url: "/api/pm/issues/:id/comments",
 		deferAuth: true,
-		options: { rateLimit: COMMENT_RATE_LIMIT },
+		options: {
+			rateLimit: COMMENT_RATE_LIMIT,
+			tag: "ProjectManagerService/Comments",
+			summary: "Crea un comentario en un issue",
+			schema: { params: IdParams, body: CS.CreateCommentBody, response: { 200: CS.CommentResponse } },
+		},
 	})
 	static async create(ctx: EndpointCtx<{ id: string }, CreateBody>) {
 		if (!ctx.data?.blocks?.length) throw new ProjectManagerError(400, "MISSING_FIELDS", "`blocks` requerido");
@@ -163,7 +186,12 @@ export class IssueCommentsEndpoints {
 		method: "PUT",
 		url: "/api/pm/issues/:id/comments/:commentId",
 		deferAuth: true,
-		options: { rateLimit: COMMENT_RATE_LIMIT },
+		options: {
+			rateLimit: COMMENT_RATE_LIMIT,
+			tag: "ProjectManagerService/Comments",
+			summary: "Edita un comentario",
+			schema: { params: CS.IdCommentParams, body: CS.UpdateCommentBody, response: { 200: CS.CommentResponse } },
+		},
 	})
 	static async update(ctx: EndpointCtx<{ id: string; commentId: string }, UpdateBody>) {
 		if (!ctx.data?.blocks?.length) throw new ProjectManagerError(400, "MISSING_FIELDS", "`blocks` requerido");
@@ -179,7 +207,12 @@ export class IssueCommentsEndpoints {
 		method: "DELETE",
 		url: "/api/pm/issues/:id/comments/:commentId",
 		deferAuth: true,
-		options: { rateLimit: COMMENT_RATE_LIMIT },
+		options: {
+			rateLimit: COMMENT_RATE_LIMIT,
+			tag: "ProjectManagerService/Comments",
+			summary: "Elimina un comentario",
+			schema: { params: CS.IdCommentParams, response: { 200: OkResponse } },
+		},
 	})
 	static async delete(ctx: EndpointCtx<{ id: string; commentId: string }>) {
 		const svc = IssueCommentsEndpoints.service;
@@ -192,7 +225,12 @@ export class IssueCommentsEndpoints {
 		method: "POST",
 		url: "/api/pm/issues/:id/comments/:commentId/reactions/:emoji",
 		deferAuth: true,
-		options: { rateLimit: REACT_RATE_LIMIT },
+		options: {
+			rateLimit: REACT_RATE_LIMIT,
+			tag: "ProjectManagerService/Comments",
+			summary: "Reacciona a un comentario",
+			schema: { params: CS.IdReactionParams },
+		},
 	})
 	static async react(ctx: EndpointCtx<{ id: string; commentId: string; emoji: string }>) {
 		const svc = IssueCommentsEndpoints.service;
@@ -205,7 +243,12 @@ export class IssueCommentsEndpoints {
 		method: "DELETE",
 		url: "/api/pm/issues/:id/comments/:commentId/reactions/:emoji",
 		deferAuth: true,
-		options: { rateLimit: REACT_RATE_LIMIT },
+		options: {
+			rateLimit: REACT_RATE_LIMIT,
+			tag: "ProjectManagerService/Comments",
+			summary: "Quita una reacción de un comentario",
+			schema: { params: CS.IdReactionParams },
+		},
 	})
 	static async unreact(ctx: EndpointCtx<{ id: string; commentId: string; emoji: string }>) {
 		const svc = IssueCommentsEndpoints.service;
@@ -218,6 +261,11 @@ export class IssueCommentsEndpoints {
 		method: "GET",
 		url: "/api/pm/issues/:id/comments/draft",
 		deferAuth: true,
+		options: {
+			tag: "ProjectManagerService/Comments",
+			summary: "Obtiene el borrador de comentario del usuario",
+			schema: { params: IdParams, querystring: CS.DraftQuery, response: { 200: CS.CommentDraftResponse } },
+		},
 	})
 	static async getDraft(ctx: EndpointCtx<{ id: string }>) {
 		const svc = IssueCommentsEndpoints.service;
@@ -237,7 +285,13 @@ export class IssueCommentsEndpoints {
 		method: "PUT",
 		url: "/api/pm/issues/:id/comments/draft",
 		deferAuth: true,
-		options: { rateLimit: DRAFT_RATE_LIMIT, skipIdempotency: true },
+		options: {
+			rateLimit: DRAFT_RATE_LIMIT,
+			skipIdempotency: true,
+			tag: "ProjectManagerService/Comments",
+			summary: "Guarda el borrador de comentario",
+			schema: { params: IdParams, body: CS.DraftBody, response: { 200: CS.CommentDraftSchema } },
+		},
 	})
 	static async saveDraft(ctx: EndpointCtx<{ id: string }, DraftBody>) {
 		if (!Array.isArray(ctx.data?.blocks)) throw new ProjectManagerError(400, "MISSING_FIELDS", "`blocks` requerido");
@@ -259,7 +313,12 @@ export class IssueCommentsEndpoints {
 		method: "DELETE",
 		url: "/api/pm/issues/:id/comments/draft",
 		deferAuth: true,
-		options: { skipIdempotency: true },
+		options: {
+			skipIdempotency: true,
+			tag: "ProjectManagerService/Comments",
+			summary: "Elimina el borrador de comentario",
+			schema: { params: IdParams, querystring: CS.DraftQuery, response: { 200: OkResponse } },
+		},
 	})
 	static async deleteDraft(ctx: EndpointCtx<{ id: string }>) {
 		const svc = IssueCommentsEndpoints.service;

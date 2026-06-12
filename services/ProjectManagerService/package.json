@@ -3,6 +3,7 @@
 	"version": "1.0.0",
 	"type": "module",
 	"dependencies": {
+		"@sinclair/typebox": "^0.34.0",
 		"mongoose": "^7.7.1"
 	}
 }

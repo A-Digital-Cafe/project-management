@@ -6,6 +6,8 @@ import type { Block } from "@common/ADC/types/learning.ts";
 import { buildIssueResourceCtx } from "./utils/issueResourceCtx.ts";
 import { validateAndSanitizeIssueDescription, ISSUE_DESCRIPTION_MAX_ATTACHMENTS } from "./utils/validateIssueDescription.ts";
 import { isProjectAccessibleInOrgContext } from "../utils/project-access.ts";
+import * as DS from "./schemas/issueDescription.js";
+import { IdParams, OkResponse } from "./schemas/common.js";
 
 const DRAFT_RATE_LIMIT = { max: 60, timeWindow: 60_000 };
 const DRAFT_TARGET_TYPE = "pm-issue-description";
@@ -56,7 +58,12 @@ export class IssueDescriptionEndpoints {
 		method: "GET",
 		url: "/api/pm/issues/:id/description/draft",
 		deferAuth: true,
-		options: { rateLimit: DRAFT_RATE_LIMIT },
+		options: {
+			rateLimit: DRAFT_RATE_LIMIT,
+			tag: "ProjectManagerService/IssueDescription",
+			summary: "Obtiene el borrador de descripción del issue",
+			schema: { params: IdParams, response: { 200: DS.IssueDescriptionDraftResponse } },
+		},
 	})
 	static async getDraft(ctx: EndpointCtx<{ id: string }>) {
 		const svc = IssueDescriptionEndpoints.service;
@@ -72,7 +79,14 @@ export class IssueDescriptionEndpoints {
 		method: "PUT",
 		url: "/api/pm/issues/:id/description/draft",
 		deferAuth: true,
-		options: { rateLimit: DRAFT_RATE_LIMIT, skipIdempotency: true },
+		options: {
+			rateLimit: DRAFT_RATE_LIMIT,
+			skipIdempotency: true,
+			tag: "ProjectManagerService/IssueDescription",
+			summary: "Guarda el borrador de descripción del issue",
+			description: "Valida los adjuntos referenciados; limita a un máximo de adjuntos por descripción.",
+			schema: { params: IdParams, body: DS.SaveDescriptionDraftBody, response: { 200: DS.IssueDescriptionDraftResponse } },
+		},
 	})
 	static async saveDraft(ctx: EndpointCtx<{ id: string }, SaveDescriptionDraftBody>) {
 		const svc = IssueDescriptionEndpoints.service;
@@ -97,7 +111,13 @@ export class IssueDescriptionEndpoints {
 		method: "DELETE",
 		url: "/api/pm/issues/:id/description/draft",
 		deferAuth: true,
-		options: { rateLimit: DRAFT_RATE_LIMIT, skipIdempotency: true },
+		options: {
+			rateLimit: DRAFT_RATE_LIMIT,
+			skipIdempotency: true,
+			tag: "ProjectManagerService/IssueDescription",
+			summary: "Elimina el borrador de descripción del issue",
+			schema: { params: IdParams, response: { 200: OkResponse } },
+		},
 	})
 	static async deleteDraft(ctx: EndpointCtx<{ id: string }>) {
 		const svc = IssueDescriptionEndpoints.service;

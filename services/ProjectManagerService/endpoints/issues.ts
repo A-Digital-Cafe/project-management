@@ -7,6 +7,8 @@ import type { Block } from "@common/ADC/types/learning.ts";
 import { buildIssueResourceCtx } from "./utils/issueResourceCtx.ts";
 import { assertCommentForFinalTransition } from "./utils/transitionGuards.ts";
 import { validateAndSanitizeIssueDescription } from "./utils/validateIssueDescription.ts";
+import * as IS from "./schemas/issues.js";
+import { IdParams, ProjectIdParams, OkResponse } from "./schemas/common.js";
 
 const ISSUE_CREATE_RATE_LIMIT = { max: 20, timeWindow: 60_000 };
 const ISSUE_UPDATE_RATE_LIMIT = { max: 20, timeWindow: 60_000 };
@@ -72,6 +74,12 @@ export class IssueEndpoints {
 		method: "GET",
 		url: "/api/pm/projects/:projectId/issues",
 		deferAuth: true,
+		options: {
+			tag: "ProjectManagerService/Issues",
+			summary: "Lista los issues de un proyecto",
+			description: "Admite filtros por sprint, milestone, assignee, columna, texto (`q`) y orden (`orderBy`). Devuelve los issues con perfiles de assignees hidratados y el proyecto.",
+			schema: { params: ProjectIdParams, querystring: IS.ListIssuesQuery, response: { 200: IS.IssuesListResponse } },
+		},
 	})
 	static async list(ctx: EndpointCtx<{ projectId: string }>) {
 		const service = IssueEndpoints.service;
@@ -97,7 +105,12 @@ export class IssueEndpoints {
 		method: "POST",
 		url: "/api/pm/projects/:projectId/issues",
 		deferAuth: true,
-		options: { rateLimit: ISSUE_CREATE_RATE_LIMIT },
+		options: {
+			rateLimit: ISSUE_CREATE_RATE_LIMIT,
+			tag: "ProjectManagerService/Issues",
+			summary: "Crea un issue en el proyecto",
+			schema: { params: ProjectIdParams, body: IS.CreateIssueBody, response: { 200: IS.IssueResponse } },
+		},
 	})
 	static async create(ctx: EndpointCtx<{ projectId: string }, Partial<Issue> & { title: string }>) {
 		if (!ctx.data?.title) throw new ProjectManagerError(400, "MISSING_FIELDS", "`title` es requerido");
@@ -133,6 +146,11 @@ export class IssueEndpoints {
 		method: "GET",
 		url: "/api/pm/issues/:id",
 		deferAuth: true,
+		options: {
+			tag: "ProjectManagerService/Issues",
+			summary: "Obtiene un issue por ID",
+			schema: { params: IdParams, response: { 200: IS.IssueResponse } },
+		},
 	})
 	static async get(ctx: EndpointCtx<{ id: string }>) {
 		const service = IssueEndpoints.service;
@@ -146,7 +164,13 @@ export class IssueEndpoints {
 		method: "PUT",
 		url: "/api/pm/issues/:id",
 		deferAuth: true,
-		options: { rateLimit: ISSUE_UPDATE_RATE_LIMIT },
+		options: {
+			rateLimit: ISSUE_UPDATE_RATE_LIMIT,
+			tag: "ProjectManagerService/Issues",
+			summary: "Actualiza un issue",
+			description: "`reason` se registra en el historial. Al editar `description` se validan los adjuntos referenciados.",
+			schema: { params: IdParams, body: IS.UpdateIssueBody, response: { 200: IS.IssueResponse } },
+		},
 	})
 	static async update(ctx: EndpointCtx<{ id: string }, Partial<Issue> & { reason?: string }>) {
 		const service = IssueEndpoints.service;
@@ -171,7 +195,12 @@ export class IssueEndpoints {
 		method: "DELETE",
 		url: "/api/pm/issues/:id",
 		deferAuth: true,
-		options: { rateLimit: ISSUE_DELETE_RATE_LIMIT },
+		options: {
+			rateLimit: ISSUE_DELETE_RATE_LIMIT,
+			tag: "ProjectManagerService/Issues",
+			summary: "Elimina un issue",
+			schema: { params: IdParams, response: { 200: OkResponse } },
+		},
 	})
 	static async delete(ctx: EndpointCtx<{ id: string }>) {
 		const service = IssueEndpoints.service;
@@ -184,7 +213,13 @@ export class IssueEndpoints {
 		method: "POST",
 		url: "/api/pm/issues/:id/move",
 		deferAuth: true,
-		options: { rateLimit: ISSUE_MOVE_RATE_LIMIT },
+		options: {
+			rateLimit: ISSUE_MOVE_RATE_LIMIT,
+			tag: "ProjectManagerService/Issues",
+			summary: "Mueve un issue a otra columna",
+			description: "Si el proyecto exige comentario en la transición final, `commentBlocks` es obligatorio. El comentario se guarda con `label = \"transition-reason\"`.",
+			schema: { params: IdParams, body: IS.MoveIssueBody, response: { 200: IS.IssueResponse } },
+		},
 	})
 	static async move(
 		ctx: EndpointCtx<{ id: string }, { columnKey: string; reason?: string; commentBlocks?: Block[]; commentAttachmentIds?: string[] }>
@@ -230,6 +265,11 @@ export class IssueEndpoints {
 		method: "GET",
 		url: "/api/pm/issues/:id/history",
 		deferAuth: true,
+		options: {
+			tag: "ProjectManagerService/Issues",
+			summary: "Obtiene el historial de cambios de un issue",
+			schema: { params: IdParams, response: { 200: IS.IssueHistoryResponse } },
+		},
 	})
 	static async history(ctx: EndpointCtx<{ id: string }>) {
 		const service = IssueEndpoints.service;

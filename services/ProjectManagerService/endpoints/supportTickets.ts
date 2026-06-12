@@ -4,6 +4,8 @@ import { AuthorizationError } from "@common/types/custom-errors/AuthorizationErr
 import type { CreateSupportTicketInput, SupportTicketType } from "@common/types/project-manager/SupportTicket.ts";
 import { SUPPORT_TICKET_VALIDATORS, validateStringField, TICKET_TYPE_LABELS } from "@common/types/project-manager/SupportTicket.ts";
 import type ProjectManagerService from "../index.js";
+import * as TS from "./schemas/supportTickets.js";
+import { TicketIssueResponse } from "./schemas/common.js";
 
 // Rate limiting: 10 tickets máximo cada 3 días por IP
 const THREE_DAYS_MS = 3 * 24 * 60 * 60 * 1000;
@@ -107,7 +109,13 @@ export class SupportTicketEndpoints {
 	@RegisterEndpoint({
 		method: "POST",
 		url: "/api/pm/support-tickets",
-		options: { rateLimit: SUPPORT_TICKET_RATE_LIMIT },
+		options: {
+			rateLimit: SUPPORT_TICKET_RATE_LIMIT,
+			tag: "ProjectManagerService/SupportTickets",
+			summary: "Crea un ticket de soporte",
+			description: "Requiere usuario autenticado. Rate limit: 5 tickets por IP cada 3 días. El `email`, `title` y `description` se validan en servidor.",
+			schema: { body: TS.CreateSupportTicketBody, response: { 200: TicketIssueResponse } },
+		},
 	})
 	static async create(ctx: EndpointCtx<never, CreateSupportTicketInput>) {
 		if (!ctx.user?.id) throw new AuthorizationError("Debes iniciar sesión para crear un ticket de soporte", "NO_TOKEN");

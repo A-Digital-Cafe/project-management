@@ -3,6 +3,8 @@ import { ProjectManagerError } from "@common/types/custom-errors/ProjectManagerE
 import { AuthorizationError } from "@common/types/custom-errors/AuthorizationError.ts";
 import type { CreateOrganizationRequestInput, OrganizationRequestSocialNetwork } from "@common/types/project-manager/OrganizationRequest.ts";
 import type ProjectManagerService from "../index.js";
+import * as OS from "./schemas/orgRequests.js";
+import { TicketIssueResponse } from "./schemas/common.js";
 
 const THREE_DAYS_MS = 3 * 24 * 60 * 60 * 1000;
 const ORG_REQUEST_RATE_LIMIT = { max: 1, timeWindow: THREE_DAYS_MS };
@@ -96,7 +98,13 @@ export class OrganizationRequestEndpoints {
 		method: "POST",
 		url: "/api/pm/organization-requests",
 		deferAuth: true,
-		options: { rateLimit: ORG_REQUEST_RATE_LIMIT },
+		options: {
+			rateLimit: ORG_REQUEST_RATE_LIMIT,
+			tag: "ProjectManagerService/OrgRequests",
+			summary: "Crea una solicitud de organización",
+			description: "Requiere usuario autenticado. Rate limit: 1 solicitud por IP cada 3 días. `email` y `url` se validan en servidor.",
+			schema: { body: OS.CreateOrgRequestBody, response: { 200: TicketIssueResponse } },
+		},
 	})
 	static async create(ctx: EndpointCtx<never, CreateOrganizationRequestInput>) {
 		if (!ctx.user?.id) throw new AuthorizationError("Debes iniciar sesión para solicitar una organización", "NO_TOKEN");
