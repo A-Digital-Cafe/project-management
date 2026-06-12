@@ -1,0 +1,16 @@
+{
+	"tutorials": [
+		{
+			"slug": "crear-tu-primer-proyecto",
+			"title": "Crear tu primer proyecto",
+			"description": "Proyectos, vistas disponibles y configuración inicial.",
+			"minutes": 3
+		},
+		{
+			"slug": "trabajar-con-issues-y-sprints",
+			"title": "Trabajar con issues y sprints",
+			"description": "Backlog, tablero kanban, sprints y milestones en el día a día.",
+			"minutes": 3
+		}
+	]
+}
