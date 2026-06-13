@@ -41,7 +41,7 @@ export function SimpleCreateModal({ title, nameLabel, descriptionLabel, onClose,
 					<adc-input value={form.description} onInput={(e: any) => setForm({ ...form, description: e.target.value })} />
 				</div>
 				<div className="flex gap-2 justify-end pt-2">
-					<adc-button variant="accent" onClick={onClose}>
+					<adc-button variant="accent-outlined" onClick={onClose}>
 						{t("common.cancel")}
 					</adc-button>
 					<adc-button variant="primary" onClick={handleSave}>

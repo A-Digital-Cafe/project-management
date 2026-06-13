@@ -110,7 +110,7 @@ export function SprintCard({
 					<adc-textarea value={form.goal} onInput={(e: any) => setForm({ ...form, goal: e.target.value })} />
 				</div>
 				<div className="flex justify-end gap-2 pt-1">
-					<adc-button variant="accent" onClick={() => setEditing(false)} disabled={saving}>
+					<adc-button variant="accent-outlined" onClick={() => setEditing(false)} disabled={saving}>
 						{t("common.cancel")}
 					</adc-button>
 					<adc-button variant="primary" onClick={save} disabled={saving || !form.name}>

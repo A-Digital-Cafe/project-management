@@ -102,7 +102,7 @@ export function MilestoneCard({ milestone, doneCount, totalCount, perms, project
 					<adc-textarea value={form.description} onInput={(e: any) => setForm({ ...form, description: e.target.value })} />
 				</div>
 				<div className="flex justify-end gap-2 pt-1">
-					<adc-button variant="accent" onClick={() => setEditing(false)} disabled={saving}>
+					<adc-button variant="accent-outlined" onClick={() => setEditing(false)} disabled={saving}>
 						{t("common.cancel")}
 					</adc-button>
 					<adc-button variant="primary" onClick={save} disabled={saving || !form.name}>

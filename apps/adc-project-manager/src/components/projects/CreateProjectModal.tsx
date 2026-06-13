@@ -180,7 +180,7 @@ export function CreateProjectModal({ orgSlug, allowed, organizations, defaultOrg
 					</div>
 				)}
 				<div className="flex gap-2 justify-end pt-2">
-					<adc-button variant="accent" onClick={onClose}>
+					<adc-button variant="accent-outlined" onClick={onClose}>
 						{t("common.cancel")}
 					</adc-button>
 					<adc-button variant="primary" onClick={handleSave} disabled={!canSave}>
