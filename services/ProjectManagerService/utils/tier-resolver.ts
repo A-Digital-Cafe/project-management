@@ -16,7 +16,7 @@ import {
 	type PMUserTierLimits,
 	type PMOrgTierLimits,
 	type PMProjectLimits,
-} from "@common/types/project-manager/tier-limits.ts";
+} from "@common/types/tiers/project-manager.ts";
 
 /** Fuente mínima de datos de usuario/organización para resolver tiers. */
 interface TierUsersSource {

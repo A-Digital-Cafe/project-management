@@ -35,6 +35,9 @@ import { issueAttachmentsChecker } from "./permissions/issueAttachments.ts";
 import { issueCommentsChecker } from "./permissions/issueComments.ts";
 import { createPMTierResolver } from "./utils/tier-resolver.ts";
 import { ProjectManagerError as ProjectManagerErrorRef } from "@common/types/custom-errors/ProjectManagerError.ts";
+import { createQuotaTrackerGetter, registerStorageApp } from "@services/data/StorageQuotaService/index.js";
+
+/** Mínimo de almacenamiento garantizado para adjuntos de issues/comentarios. */
 
 export default class ProjectManagerService extends BaseService {
 	public readonly name = "ProjectManagerService";
@@ -140,6 +143,15 @@ export default class ProjectManagerService extends BaseService {
 				},
 				permissionChecker: issueAttachmentsChecker,
 				kernelKey,
+				quota: { appId: "project-manager", getTracker: createQuotaTrackerGetter(this.#kernelRef) },
+				logger: this.logger,
+			});
+
+			const issueAttachments = this.#issueAttachmentsManager;
+			registerStorageApp(this.#kernelRef, kernelKey, {
+				appId: "project-manager",
+				label: "Projects",
+				computeUsage: () => issueAttachments.aggregateUsageByUser(kernelKey),
 			});
 
 			this.#issueCommentsManager = commentsUtil.createCommentsManager({
