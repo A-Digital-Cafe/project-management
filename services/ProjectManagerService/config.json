@@ -52,6 +52,11 @@
 		{
 			"name": "OperationsService",
 			"version": "latest"
+		},
+		{
+			"name": "StorageQuotaService",
+			"version": "latest",
+			"optional": true
 		}
 	],
 	"private": {

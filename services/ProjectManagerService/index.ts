@@ -64,6 +64,13 @@ export default class ProjectManagerService extends BaseService {
 		this.#kernelRef = kernel;
 	}
 
+	/** Re-registra la app en StorageQuotaService cuando éste se reinicia (dep opcional). */
+	#reRegisterStorage: (() => void) | null = null;
+
+	public override onDependencyRestored(dependencyName: string): void {
+		if (dependencyName === "StorageQuotaService") this.#reRegisterStorage?.();
+	}
+
 	readonly #getAuthVerifier: AuthVerifierGetter = () => this.#authVerifier;
 
 	@EnableEndpoints({
@@ -148,11 +155,13 @@ export default class ProjectManagerService extends BaseService {
 			});
 
 			const issueAttachments = this.#issueAttachmentsManager;
-			registerStorageApp(this.#kernelRef, kernelKey, {
+			const quotaApp = {
 				appId: "project-manager",
 				label: "Projects",
 				computeUsage: () => issueAttachments.aggregateUsageByUser(kernelKey),
-			});
+			};
+			this.#reRegisterStorage = () => registerStorageApp(this.#kernelRef, kernelKey, quotaApp);
+			this.#reRegisterStorage();
 
 			this.#issueCommentsManager = commentsUtil.createCommentsManager({
 				mongoConnection: connection,
