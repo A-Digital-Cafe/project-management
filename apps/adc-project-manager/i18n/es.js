@@ -47,6 +47,8 @@ export default {
 		unauthorized: "Sin autorización",
 		noPermissions: "No tienes permisos para acceder a este panel.",
 		confirmDelete: "¿Confirmar eliminación?",
+		created: "Creado correctamente",
+		deleted: "Eliminado correctamente",
 		loading: "Cargando...",
 		yes: "Sí",
 		no: "No",
@@ -129,6 +131,7 @@ export default {
 		descriptionPlaceholder: "Describe el issue con bloques...",
 		descriptionEmpty: "Sin descripción",
 		descriptionClickToEdit: "Clic para editar",
+		descriptionDoubleClickToEdit: "Doble clic para editar",
 		descriptionUnsavedChanges: "Tienes cambios sin guardar — clic para retomar"
 	},
 	board: {

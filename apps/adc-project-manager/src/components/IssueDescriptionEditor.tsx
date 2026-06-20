@@ -37,10 +37,9 @@ export function IssueDescriptionEditor({ desc, canEdit }: Readonly<Props>) {
 				/>
 			) : (
 				<button
-					type="button"
-					className={`w-full text-left rounded-md border border-text/15 bg-surface p-3 min-h-12 ${canEdit ? "cursor-text hover:border-primary/60" : "cursor-default"}`}
-					onClick={desc.startEditing}
-					title={canEdit ? (t("issues.descriptionClickToEdit") ?? "Clic para editar") : undefined}
+					className={`w-full text-left rounded-md border border-text/15 bg-surface p-3 min-h-12 select-text ${canEdit ? "cursor-text hover:border-primary/60" : "cursor-default"}`}
+					onDoubleClick={canEdit ? desc.startEditing : undefined}
+					title={canEdit ? (t("issues.descriptionDoubleClickToEdit") ?? "Doble clic para editar") : undefined}
 				>
 					{desc.savedDescription.length === 0 ? (
 						<span className="text-muted text-sm italic">{t("issues.descriptionEmpty") ?? "Sin descripción"}</span>

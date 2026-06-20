@@ -4,7 +4,7 @@ import type ProjectManagerService from "../index.js";
 import type { Project, KanbanColumn, ProjectSettings, PriorityStrategy } from "@common/types/project-manager/Project.ts";
 import type { CustomFieldDef } from "@common/types/project-manager/CustomField.ts";
 import type { IssueLinkType } from "@common/types/project-manager/IssueLink.ts";
-import { normalizeSlug } from "@common/utils/project-manager/slug.ts";
+import { normalizeSlug } from "../utils/slug.ts";
 import * as PS from "./schemas/projects.js";
 import { IdParams, OkResponse } from "./schemas/common.js";
 

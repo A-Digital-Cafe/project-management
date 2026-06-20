@@ -7,8 +7,8 @@ import { type AuthVerifierGetter, PermissionChecker } from "@common/types/auth-v
 import { PMScopes, PM_RESOURCE_NAME } from "@common/types/project-manager/permissions.ts";
 import { CRUDXAction } from "@common/types/Actions.ts";
 import { ProjectManagerError } from "@common/types/custom-errors/ProjectManagerError.ts";
-import { formatIssueKey, deriveProjectKey } from "@common/utils/project-manager/keygen.ts";
-import { buildDiffEntries } from "@common/utils/project-manager/diff.ts";
+import { formatIssueKey, deriveProjectKey } from "../utils/keygen.ts";
+import { buildDiffEntries } from "../utils/diff.ts";
 import { sortIssuesByPriority, normalizeUrgency, normalizeDifficulty } from "@common/utils/project-manager/priority.ts";
 import { sanitizeBlocks } from "@common/utils/blocks/sanitize.ts";
 import { isProjectAccessibleInOrgContext, isProjectMember } from "../utils/project-access.ts";
@@ -83,6 +83,20 @@ export class IssueManager {
 	async createInternal(kernelKey: symbol, project: Project, input: Partial<Issue> & Pick<Issue, "title">, reporterId: string): Promise<Issue> {
 		if (kernelKey !== this.#kernelKey) throw new Error("Acceso denegado: kernel key inválida");
 		return this.#createWithReporter(project, input, reporterId);
+	}
+
+	/**
+	 * Lista (kernel-gated, sin auth de usuario) los issues marcados como bug bounty
+	 * (`customFields.bugBounty === "true"`) de un proyecto. Lo consume el endpoint
+	 * público de transparencia, que filtra/redacta los campos antes de exponerlos.
+	 */
+	async listBugBountyInternal(kernelKey: symbol, projectId: string, limit = 500): Promise<Issue[]> {
+		if (kernelKey !== this.#kernelKey) throw new Error("Acceso denegado: kernel key inválida");
+		const docs = await this.issueModel
+			.find({ projectId, "customFields.bugBounty": "true" })
+			.sort({ createdAt: -1 })
+			.limit(limit);
+		return docs.map((d) => normalizeIssueDescription(docToPlain<Issue>(d)!));
 	}
 
 	async #createWithReporter(project: Project, input: Partial<Issue> & Pick<Issue, "title">, reporterId: string): Promise<Issue> {
@@ -288,5 +302,19 @@ export class IssueManager {
 		if (kernelKey !== this.#kernelKey) throw new Error("Acceso denegado: kernel key inválida");
 		const res = await this.issueModel.deleteMany({ projectId });
 		return res.deletedCount ?? 0;
+	}
+
+	/**
+	 * Reasigna a `fallbackColumnKey` los issues del proyecto cuya `columnKey` no esté
+	 * en `validKeys` (p.ej. tras reconciliar el tablero y eliminar columnas). Devuelve
+	 * cuántos se movieron. Uso interno (sin auth de usuario), protegido por `kernelKey`.
+	 */
+	async reassignOrphanColumnsInternal(kernelKey: symbol, projectId: string, validKeys: string[], fallbackColumnKey: string): Promise<number> {
+		if (kernelKey !== this.#kernelKey) throw new Error("Acceso denegado: kernel key inválida");
+		const res = await this.issueModel.updateMany(
+			{ projectId, columnKey: { $nin: validKeys } },
+			{ $set: { columnKey: fallbackColumnKey, updatedAt: new Date() } }
+		);
+		return res.modifiedCount ?? 0;
 	}
 }

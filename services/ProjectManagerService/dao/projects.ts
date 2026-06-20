@@ -1,7 +1,8 @@
 import type { Model } from "mongoose";
-import type { Project, ProjectVisibility } from "@common/types/project-manager/Project.ts";
+import type { Project, ProjectVisibility, KanbanColumn } from "@common/types/project-manager/Project.ts";
+import type { CustomFieldDef } from "@common/types/project-manager/CustomField.ts";
 import type { ILogger } from "@interfaces/utils/ILogger.js";
-import { generateId } from "@common/utils/crypto.ts";
+import { generateId, shortId } from "@common/utils/crypto.ts";
 import { applyProjectDefaults, validateKanbanColumns } from "../utils/defaults.ts";
 import { type AuthVerifierGetter, PermissionChecker } from "@common/types/auth-verifier.ts";
 import { PMScopes, PM_RESOURCE_NAME } from "@common/types/project-manager/permissions.ts";
@@ -29,6 +30,56 @@ interface ListProjectsContext {
 	tokenOrgId: string | null;
 	hasGlobalPMRead: boolean;
 	isGlobalAdmin: boolean;
+}
+
+/** Owner de los proyectos creados automáticamente por el servicio (tableros de tickets). */
+const SYSTEM_OWNER_ID = "system";
+
+/** Columna deseada para reconciliar un tablero (forma estructural, sin acoplar a tipos de tickets). */
+export interface DesiredColumn {
+	key: string;
+	name: string;
+	isAuto?: boolean;
+	isDone?: boolean;
+}
+
+/** Compara dos sets de columnas por contenido relevante y orden (evita escrituras innecesarias). */
+function sameColumns(a: readonly KanbanColumn[], b: readonly KanbanColumn[]): boolean {
+	if (a.length !== b.length) return false;
+	return a.every((c, i) => {
+		const d = b[i];
+		return (
+			c.key === d.key &&
+			c.name === d.name &&
+			c.order === d.order &&
+			Boolean(c.isAuto) === Boolean(d.isAuto) &&
+			Boolean(c.isDone) === Boolean(d.isDone)
+		);
+	});
+}
+
+/** Compara dos listas (por orden) usando un predicado de igualdad por elemento. */
+function arraysEqual<T>(a: readonly T[] | undefined, b: readonly T[] | undefined, eq: (x: T, y: T) => boolean): boolean {
+	const aa = a ?? [];
+	const bb = b ?? [];
+	return aa.length === bb.length && aa.every((x, i) => eq(x, bb[i]));
+}
+
+/** Igualdad por contenido relevante de dos definiciones de custom field. */
+function sameFieldDef(a: CustomFieldDef, b: CustomFieldDef): boolean {
+	return (
+		a.id === b.id &&
+		a.name === b.name &&
+		a.type === b.type &&
+		Boolean(a.required) === Boolean(b.required) &&
+		arraysEqual(a.options, b.options, (x, y) => x === y) &&
+		arraysEqual(a.badgeOptions, b.badgeOptions, (x, y) => x.name === y.name && x.color === y.color)
+	);
+}
+
+/** Compara dos sets de custom fields por contenido y orden (evita escrituras innecesarias). */
+function sameFieldDefs(a: readonly CustomFieldDef[], b: readonly CustomFieldDef[]): boolean {
+	return arraysEqual(a, b, sameFieldDef);
 }
 
 /** Contexto del caller para evaluar acceso alternativo por membresía. */
@@ -63,6 +114,14 @@ export interface PMCtx extends CallerMembership {
  */
 export interface ProjectInternals {
 	fetchProject: (projectId: string) => Promise<Project | null>;
+	/** Resuelve un proyecto global (orgId null) por su slug. Uso interno. */
+	fetchGlobalProjectBySlug: (slug: string) => Promise<Project | null>;
+	/** Devuelve el proyecto global con ese slug; si no existe, lo crea con `desired`. */
+	ensureGlobalProject: (slug: string, name: string, desired: ReadonlyArray<DesiredColumn>) => Promise<Project>;
+	/** Deja el tablero exactamente con las columnas `desired` (agrega/elimina). Idempotente. */
+	reconcileKanbanColumns: (projectId: string, desired: ReadonlyArray<DesiredColumn>) => Promise<Project | null>;
+	/** Asegura (crea/actualiza) los custom fields `desired`, preservando los extra. Idempotente. */
+	reconcileCustomFieldDefs: (projectId: string, desired: ReadonlyArray<CustomFieldDef>) => Promise<Project | null>;
 	incrementIssueCounter: (projectId: string) => Promise<number>;
 }
 
@@ -194,6 +253,96 @@ export class ProjectManager {
 		return docToPlain<Project>(await this.projectModel.findOne({ slug, orgId }));
 	}
 
+	/** Convierte un set de columnas deseadas en `KanbanColumn[]`, preservando `id`/`color` de las existentes (match por `key`). */
+	#desiredToColumns(desired: ReadonlyArray<DesiredColumn>, existing: readonly KanbanColumn[] = []): KanbanColumn[] {
+		const byKey = new Map(existing.map((c) => [c.key, c]));
+		return desired.map((d, i) => {
+			const prev = byKey.get(d.key);
+			return {
+				id: prev?.id ?? shortId(),
+				key: d.key,
+				name: d.name,
+				order: i,
+				...(prev?.color ? { color: prev.color } : {}),
+				isAuto: d.isAuto ?? false,
+				isDone: d.isDone ?? false,
+			};
+		});
+	}
+
+	/**
+	 * Devuelve el proyecto global (orgId null) con ese `slug`; si no existe, lo
+	 * **crea** con las columnas `desired` (owner de sistema, visibilidad privada).
+	 * Uso interno (sin auth de usuario).
+	 */
+	async #ensureGlobalProject(slug: string, name: string, desired: ReadonlyArray<DesiredColumn>): Promise<Project> {
+		const existing = await this.#fetchProjectBySlug(slug, null);
+		if (existing) return existing;
+
+		const columns = this.#desiredToColumns(desired);
+		validateKanbanColumns(columns);
+		const project = applyProjectDefaults({
+			id: generateId(),
+			slug,
+			name,
+			ownerId: SYSTEM_OWNER_ID,
+			visibility: "private",
+			kanbanColumns: columns,
+		});
+		const created = await this.projectModel.create(project);
+		this.logger.logInfo(`Proyecto de tablero creado automáticamente: "${slug}" (${project.id})`);
+		return docToPlain<Project>(created)!;
+	}
+
+	/**
+	 * Deja el tablero del proyecto EXACTAMENTE con las columnas `desired` (en ese
+	 * orden): agrega las faltantes, elimina las sobrantes y preserva `id`/`color`
+	 * de las que ya existían (match por `key`). Idempotente: si ya coincide, no
+	 * escribe. Devuelve el proyecto actualizado (o `null` si no existe).
+	 */
+	async #reconcileKanbanColumns(projectId: string, desired: ReadonlyArray<DesiredColumn>): Promise<Project | null> {
+		const project = await this.#fetchProject(projectId);
+		if (!project) return null;
+
+		const columns = this.#desiredToColumns(desired, project.kanbanColumns);
+
+		if (sameColumns(project.kanbanColumns, columns)) return project;
+
+		validateKanbanColumns(columns);
+		const updated = await this.projectModel.findOneAndUpdate(
+			{ id: projectId },
+			{ kanbanColumns: columns, updatedAt: new Date() },
+			{ new: true }
+		);
+		this.logger.logInfo(`Tablero reconciliado en proyecto ${projectId}: [${columns.map((c) => c.key).join(", ")}]`);
+		return docToPlain<Project>(updated);
+	}
+
+	/**
+	 * Asegura que el proyecto tenga los custom fields `desired` (crea los que
+	 * falten y actualiza los existentes con el mismo `id` a su forma canónica),
+	 * preservando los campos extra que un admin haya agregado a mano. Idempotente:
+	 * si ya coincide, no escribe. Devuelve el proyecto actualizado (o `null` si no existe).
+	 */
+	async #reconcileCustomFieldDefs(projectId: string, desired: ReadonlyArray<CustomFieldDef>): Promise<Project | null> {
+		const project = await this.#fetchProject(projectId);
+		if (!project) return null;
+
+		const canonicalIds = new Set(desired.map((d) => d.id));
+		const extras = project.customFieldDefs.filter((d) => !canonicalIds.has(d.id));
+		const merged: CustomFieldDef[] = [...desired.map((d) => ({ ...d })), ...extras];
+
+		if (sameFieldDefs(project.customFieldDefs, merged)) return project;
+
+		const updated = await this.projectModel.findOneAndUpdate(
+			{ id: projectId },
+			{ customFieldDefs: merged, updatedAt: new Date() },
+			{ new: true }
+		);
+		this.logger.logInfo(`Campos personalizados reconciliados en proyecto ${projectId}: [${desired.map((d) => d.id).join(", ")}]`);
+		return docToPlain<Project>(updated);
+	}
+
 	async getProject(projectId: string, token?: string, caller?: CallerMembership): Promise<Project | null> {
 		const project = await this.#fetchProject(projectId);
 		await this.#permissionChecker.requirePermission(token, CRUDXAction.READ, PMScopes.PROJECTS, {
@@ -296,6 +445,10 @@ export class ProjectManager {
 
 		return {
 			fetchProject: (id) => this.#fetchProject(id),
+			fetchGlobalProjectBySlug: (slug) => this.#fetchProjectBySlug(slug, null),
+			ensureGlobalProject: (slug, name, desired) => this.#ensureGlobalProject(slug, name, desired),
+			reconcileKanbanColumns: (id, desired) => this.#reconcileKanbanColumns(id, desired),
+			reconcileCustomFieldDefs: (id, desired) => this.#reconcileCustomFieldDefs(id, desired),
 			incrementIssueCounter: (id) => this.#incrementIssueCounter(id),
 		};
 	}

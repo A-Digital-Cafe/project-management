@@ -47,6 +47,8 @@ export default {
 		unauthorized: "Unauthorized",
 		noPermissions: "You do not have permissions to access this panel.",
 		confirmDelete: "Confirm delete?",
+		created: "Created successfully",
+		deleted: "Deleted successfully",
 		loading: "Loading...",
 		yes: "Yes",
 		no: "No",
@@ -129,6 +131,7 @@ export default {
 		descriptionPlaceholder: "Describe the issue with blocks...",
 		descriptionEmpty: "No description",
 		descriptionClickToEdit: "Click to edit",
+		descriptionDoubleClickToEdit: "Double-click to edit",
 		descriptionUnsavedChanges: "You have unsaved changes — click to resume"
 	},
 	board: {

@@ -38,7 +38,7 @@ export function ProjectCard({ project, canDelete, onOpen, onDelete }: Readonly<P
 					{t("common.open")}
 				</adc-button>
 				{canDelete && onDelete && (
-					<adc-button variant="accent" onClick={() => onDelete(project.id)}>
+					<adc-button variant="danger-outlined" onClick={() => onDelete(project.id)}>
 						{t("common.delete")}
 					</adc-button>
 				)}

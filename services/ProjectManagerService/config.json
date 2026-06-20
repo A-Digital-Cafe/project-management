@@ -60,6 +60,8 @@
 		}
 	],
 	"private": {
-		"organizationRequestsProjectId": "${ORG_MANAGEMENT_PROJECT_ID}"
+		"orgManagementProjectId": "${ORG_MANAGEMENT_PROJECT_ID}",
+		"organizationRequestsProjectId": "${PM_ORG_REQUESTS_PROJECT_ID}",
+		"supportTicketsProjectId": "${PM_SUPPORT_TICKETS_PROJECT_ID}"
 	}
 }

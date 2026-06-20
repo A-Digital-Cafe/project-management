@@ -37,6 +37,7 @@ import { createPMTierResolver } from "./utils/tier-resolver.ts";
 import { ProjectManagerError as ProjectManagerErrorRef } from "@common/types/custom-errors/ProjectManagerError.ts";
 import { createQuotaTrackerGetter, registerStorageApp } from "@services/data/StorageQuotaService/index.js";
 import { purgePrivateProjectData } from "./maintenance.ts";
+import { reconcileTicketBoards, type TicketBoardsConfig } from "./boards.ts";
 
 /** Mínimo de almacenamiento garantizado para adjuntos de issues/comentarios. */
 
@@ -122,12 +123,12 @@ export default class ProjectManagerService extends BaseService {
 		this.#organizationRequestManager = new OrganizationRequestManager(
 			this.#projectManager,
 			this.#issueManager,
-			(this.config?.private ?? {}) as { organizationRequestsProjectId?: string }
+			(this.config?.private ?? {}) as { organizationRequestsProjectId?: string; orgManagementProjectId?: string }
 		);
 		this.#supportTicketManager = new SupportTicketManager(
 			this.#projectManager,
 			this.#issueManager,
-			(this.config?.private ?? {}) as { supportTicketsProjectId?: string }
+			(this.config?.private ?? {}) as { supportTicketsProjectId?: string; orgManagementProjectId?: string }
 		);
 
 		this.#authVerifier = this.#identity.createAuthVerifier();
@@ -193,6 +194,12 @@ export default class ProjectManagerService extends BaseService {
 		IssueAttachmentsEndpoints.init(this, kernelKey);
 		OrganizationRequestEndpoints.init(this, kernelKey);
 		SupportTicketEndpoints.init(this, kernelKey);
+
+		await reconcileTicketBoards(
+			{ projects: this.projects, issues: this.issues, logger: this.logger },
+			kernelKey,
+			(this.config?.private ?? {}) as TicketBoardsConfig
+		);
 
 		this.logger.logOk("ProjectManagerService iniciado");
 	}

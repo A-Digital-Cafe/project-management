@@ -1,7 +1,7 @@
 import type { Block } from "@common/ADC/types/learning.ts";
 import { ProjectManagerError } from "@common/types/custom-errors/ProjectManagerError.ts";
 import type { CreateOrganizationRequestInput, OrganizationRequestIssueResponse } from "@common/types/project-manager/OrganizationRequest.ts";
-import { TICKET_COLUMN_MAP, type CommonTicketColumnKey } from "@common/types/project-manager/CommonTicketColumns.ts";
+import { TICKET_COLUMN_MAP, type CommonTicketColumnKey } from "../boards.ts";
 import type { IssueManager } from "./issues.js";
 import type { ProjectManager } from "./projects.js";
 
@@ -13,6 +13,7 @@ export interface OrganizationRequestCaller {
 
 interface OrganizationRequestConfig {
 	organizationRequestsProjectId?: string;
+	orgManagementProjectId?: string;
 }
 
 export class OrganizationRequestManager {
@@ -27,8 +28,8 @@ export class OrganizationRequestManager {
 		input: CreateOrganizationRequestInput,
 		caller: OrganizationRequestCaller
 	): Promise<OrganizationRequestIssueResponse> {
-		const projectId = this.#projectId();
-		const project = await this.projects.getInternals(kernelKey).fetchProject(projectId);
+		const slug = this.#projectSlug();
+		const project = await this.projects.getInternals(kernelKey).fetchGlobalProjectBySlug(slug);
 		if (!project) {
 			throw new ProjectManagerError(
 				503,
@@ -60,21 +61,20 @@ export class OrganizationRequestManager {
 		};
 	}
 
-	#projectId(): string {
-		const projectId =
+	#projectSlug(): string {
+		const slug =
 			this.config.organizationRequestsProjectId?.trim() ||
-			process.env.ORG_MANAGEMENT_PROJECT_ID?.trim() ||
-			process.env.PM_ORG_REQUESTS_PROJECT_ID?.trim() ||
+			this.config.orgManagementProjectId?.trim() ||
 			"";
 
-		if (!projectId) {
+		if (!slug) {
 			throw new ProjectManagerError(
 				503,
 				"ORG_REQUEST_PROJECT_NOT_CONFIGURED",
-				"Falta configurar ORG_MANAGEMENT_PROJECT_ID para crear solicitudes de organización"
+				"Falta configurar ORG_MANAGEMENT_PROJECT_ID (slug del proyecto) para crear solicitudes de organización"
 			);
 		}
-		return projectId;
+		return slug;
 	}
 }
 

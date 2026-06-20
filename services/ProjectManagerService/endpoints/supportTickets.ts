@@ -2,7 +2,12 @@ import { RegisterEndpoint, type EndpointCtx } from "@services/core/EndpointManag
 import { ProjectManagerError } from "@common/types/custom-errors/ProjectManagerError.ts";
 import { AuthorizationError } from "@common/types/custom-errors/AuthorizationError.ts";
 import type { CreateSupportTicketInput, SupportTicketType } from "@common/types/project-manager/SupportTicket.ts";
-import { SUPPORT_TICKET_VALIDATORS, validateStringField, TICKET_TYPE_LABELS } from "@common/types/project-manager/SupportTicket.ts";
+import {
+	SUPPORT_TICKET_VALIDATORS,
+	validateStringField,
+	TICKET_TYPE_LABELS,
+	BUG_BOUNTY_FIELD_CONSTRAINTS,
+} from "@common/types/project-manager/SupportTicket.ts";
 import type ProjectManagerService from "../index.js";
 import * as TS from "./schemas/supportTickets.js";
 import { TicketIssueResponse } from "./schemas/common.js";
@@ -65,6 +70,17 @@ function validateTicketType(value: unknown): SupportTicketType {
 	return type as SupportTicketType;
 }
 
+function normalizeRewardPreference(value: unknown): "plus" | "pro" | undefined {
+	const v = readTrimmedString(value);
+	return v === "plus" || v === "pro" ? v : undefined;
+}
+
+function normalizeCreditName(value: unknown): string | undefined {
+	const name = readTrimmedString(value);
+	if (!name) return undefined;
+	return name.slice(0, BUG_BOUNTY_FIELD_CONSTRAINTS.creditName.max);
+}
+
 function normalizeInput(data: unknown): CreateSupportTicketInput {
 	const record = (data ?? {}) as Record<string, unknown>;
 
@@ -72,12 +88,21 @@ function normalizeInput(data: unknown): CreateSupportTicketInput {
 	const title = validateTitle(record.title);
 	const description = validateDescription(record.description);
 
-	return {
+	const base: CreateSupportTicketInput = {
 		type,
 		title,
 		email: normalizeEmail(record.email),
 		description,
 	};
+
+	// Campos de bug bounty solo se honran para tickets de seguridad.
+	if (type === "security") {
+		base.wantsCredit = record.wantsCredit === true;
+		base.creditName = base.wantsCredit ? normalizeCreditName(record.creditName) : undefined;
+		base.rewardPreference = normalizeRewardPreference(record.rewardPreference);
+	}
+
+	return base;
 }
 
 export class SupportTicketEndpoints {
@@ -125,5 +150,30 @@ export class SupportTicketEndpoints {
 			userId: ctx.user.id,
 			email: ctx.user.email,
 		});
+	}
+
+	/**
+	 * Log público de transparencia del Bug Bounty Program. PÚBLICO (sin auth):
+	 * expone solo id de ticket, fecha/hora, hash SHA-256 de la descripción y
+	 * estado. La descripción y el handle de crédito solo aparecen cuando el
+	 * ticket fue publicado (resuelto + crédito aceptado); la descripción debe
+	 * verificar contra el hash.
+	 */
+	@RegisterEndpoint({
+		method: "GET",
+		url: "/api/pm/bug-bounty/public",
+		options: {
+			// TTL corto: el log lo curan los admins (estado/severidad/descripción) y
+			// debe reflejar cambios casi en vivo. No hay invalidación por tag (el
+			// `cache` solo emite Cache-Control), así que la frescura se controla acá.
+			cache: { maxAge: 15, staleWhileRevalidate: 30, scope: "public" },
+			tag: "ProjectManagerService/SupportTickets",
+			summary: "Log público de transparencia del bug bounty",
+			description: "Público. Lista id, fecha/hora, hash y estado; descripción y crédito solo si el ticket fue publicado.",
+		},
+	})
+	static async publicBugBounty(_ctx: EndpointCtx) {
+		const entries = await SupportTicketEndpoints.service.supportTickets.listPublicBugBounty(SupportTicketEndpoints.kernelKey);
+		return { data: entries };
 	}
 }

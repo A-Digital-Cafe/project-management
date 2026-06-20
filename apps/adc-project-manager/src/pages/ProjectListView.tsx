@@ -1,5 +1,6 @@
 import { useState, useEffect, useCallback, useMemo } from "react";
 import { useTranslation } from "@ui-library/utils/i18n-react";
+import { toast } from "@ui-library/utils/toast";
 import type { Permission } from "@common/types/identity/Permission.ts";
 import type { Project } from "@common/types/project-manager/Project.ts";
 import { pmApi } from "../utils/pm-api.ts";
@@ -69,6 +70,7 @@ export function ProjectListView({ perms, caller, isAdmin, isOrgAdmin, orgId, org
 		});
 		if (res.success) {
 			setShowCreate(false);
+			toast.success(t("common.created"));
 			await load();
 		}
 	};
@@ -76,7 +78,10 @@ export function ProjectListView({ perms, caller, isAdmin, isOrgAdmin, orgId, org
 	const handleDelete = async (id: string) => {
 		if (!globalThis.confirm(t("common.confirmDelete"))) return;
 		const res = await pmApi.deleteProject(id);
-		if (res.success) await load();
+		if (res.success) {
+			toast.success(t("common.deleted"));
+			await load();
+		}
 	};
 
 	if (loading) return <adc-skeleton variant="rectangular" height="300px" />;
@@ -93,7 +98,14 @@ export function ProjectListView({ perms, caller, isAdmin, isOrgAdmin, orgId, org
 			</div>
 
 			{projects.length === 0 ? (
-				<p className="text-muted text-center py-8">{t("projects.empty")}</p>
+				<div className="flex flex-col items-center gap-3 text-center py-12">
+					<p className="text-muted">{t("projects.empty")}</p>
+					{canCreate && (
+						<adc-button variant="primary" onClick={() => setShowCreate(true)}>
+							{t("projects.newProject")}
+						</adc-button>
+					)}
+				</div>
 			) : (
 				<div className="grid gap-3 grid-cols-1 md:grid-cols-2 lg:grid-cols-3">
 					{projects.map((p) => {
