@@ -87,55 +87,7 @@ export class ProjectManager {
 		const callerId = ctx.userId || userId || "";
 
 		const visibility: ProjectVisibility = input.visibility ?? "private";
-		const requestedOrgId = input.orgId ?? null;
-
-		// Resolver orgId final + autorización según visibilidad
-		let orgId: string | null;
-		switch (visibility) {
-			case "public": {
-				// Solo admin global o usuario con PM.WRITE global (token sin orgId).
-				const allowed = ctx.isGlobalAdmin || (ctx.tokenOrgId === null && ctx.hasGlobalPMWrite);
-				if (!allowed) {
-					throw new ProjectManagerError(403, "PROJECT_ACCESS_DENIED", "Solo un admin global puede crear proyectos públicos");
-				}
-				orgId = null;
-				break;
-			}
-			case "org": {
-				// Admin global elige org explícitamente; en modo org usa la del token.
-				const targetOrg = ctx.isGlobalAdmin ? requestedOrgId : (ctx.tokenOrgId ?? requestedOrgId);
-				if (!targetOrg) {
-					throw new ProjectManagerError(400, "MISSING_FIELDS", "`orgId` requerido para proyecto de organización");
-				}
-				if (!ctx.isGlobalAdmin) {
-					if (ctx.tokenOrgId && ctx.tokenOrgId !== targetOrg) {
-						throw new ProjectManagerError(403, "ORG_ACCESS_DENIED", "No tienes acceso a esa organización");
-					}
-					const isOrgAdmin = await ctx.isOrgAdminOrPM(targetOrg);
-					if (!isOrgAdmin) {
-						throw new ProjectManagerError(
-							403,
-							"PROJECT_ACCESS_DENIED",
-							"Solo un Admin o Project Manager de la organización puede crear proyectos de organización"
-						);
-					}
-				}
-				await this.#enforceOrgProjectLimit(targetOrg);
-				orgId = targetOrg;
-				break;
-			}
-			case "private": {
-				// Un proyecto privado nunca puede estar asociado a una organización.
-				if (requestedOrgId)
-					throw new ProjectManagerError(400, "INVALID_VISIBILITY", "Un proyecto privado no puede estar asociado a una organización");
-
-				await this.#enforcePrivateProjectLimit(callerId);
-				orgId = null;
-				break;
-			}
-			default:
-				throw new ProjectManagerError(400, "INVALID_VISIBILITY", `Visibilidad desconocida: ${String(visibility)}`);
-		}
+		const orgId = await this.#resolveCreateOrgId(visibility, ctx, input.orgId ?? null, callerId);
 
 		const project = applyProjectDefaults({
 			...input,
@@ -158,6 +110,61 @@ export class ProjectManager {
 
 		this.logger.logDebug(`Proyecto creado: ${project.slug} (org=${project.orgId ?? "GLOBAL"}, vis=${project.visibility})`);
 		return project;
+	}
+
+	/** Resuelve y autoriza el `orgId` final del proyecto según su visibilidad. */
+	#resolveCreateOrgId(visibility: ProjectVisibility, ctx: PMCtx, requestedOrgId: string | null, callerId: string): Promise<string | null> {
+		switch (visibility) {
+			case "public":
+				return Promise.resolve(this.#authorizePublicProject(ctx));
+			case "org":
+				return this.#authorizeOrgProject(ctx, requestedOrgId);
+			case "private":
+				return this.#authorizePrivateProject(requestedOrgId, callerId);
+			default:
+				throw new ProjectManagerError(400, "INVALID_VISIBILITY", `Visibilidad desconocida: ${String(visibility)}`);
+		}
+	}
+
+	/** Proyecto público: sólo admin global o usuario con PM.WRITE global (token sin orgId). */
+	#authorizePublicProject(ctx: PMCtx): null {
+		const allowed = ctx.isGlobalAdmin || (ctx.tokenOrgId === null && ctx.hasGlobalPMWrite);
+		if (!allowed) {
+			throw new ProjectManagerError(403, "PROJECT_ACCESS_DENIED", "Solo un admin global puede crear proyectos públicos");
+		}
+		return null;
+	}
+
+	/** Proyecto de organización: resuelve la org destino, exige Admin/PM en ella y su cuota. */
+	async #authorizeOrgProject(ctx: PMCtx, requestedOrgId: string | null): Promise<string> {
+		// Admin global elige org explícitamente; en modo org usa la del token.
+		const targetOrg = ctx.isGlobalAdmin ? requestedOrgId : (ctx.tokenOrgId ?? requestedOrgId);
+		if (!targetOrg) {
+			throw new ProjectManagerError(400, "MISSING_FIELDS", "`orgId` requerido para proyecto de organización");
+		}
+		if (!ctx.isGlobalAdmin) {
+			if (ctx.tokenOrgId && ctx.tokenOrgId !== targetOrg) {
+				throw new ProjectManagerError(403, "ORG_ACCESS_DENIED", "No tienes acceso a esa organización");
+			}
+			if (!(await ctx.isOrgAdminOrPM(targetOrg))) {
+				throw new ProjectManagerError(
+					403,
+					"PROJECT_ACCESS_DENIED",
+					"Solo un Admin o Project Manager de la organización puede crear proyectos de organización"
+				);
+			}
+		}
+		await this.#enforceOrgProjectLimit(targetOrg);
+		return targetOrg;
+	}
+
+	/** Proyecto privado: nunca asociado a una org; sujeto al límite de tier del usuario. */
+	async #authorizePrivateProject(requestedOrgId: string | null, callerId: string): Promise<null> {
+		if (requestedOrgId) {
+			throw new ProjectManagerError(400, "INVALID_VISIBILITY", "Un proyecto privado no puede estar asociado a una organización");
+		}
+		await this.#enforcePrivateProjectLimit(callerId);
+		return null;
 	}
 
 	async #enforcePrivateProjectLimit(userId: string): Promise<void> {

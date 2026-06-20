@@ -36,6 +36,7 @@ import { issueCommentsChecker } from "./permissions/issueComments.ts";
 import { createPMTierResolver } from "./utils/tier-resolver.ts";
 import { ProjectManagerError as ProjectManagerErrorRef } from "@common/types/custom-errors/ProjectManagerError.ts";
 import { createQuotaTrackerGetter, registerStorageApp } from "@services/data/StorageQuotaService/index.js";
+import { purgePrivateProjectData } from "./maintenance.ts";
 
 /** Mínimo de almacenamiento garantizado para adjuntos de issues/comentarios. */
 
@@ -347,44 +348,22 @@ export default class ProjectManagerService extends BaseService {
 	@OnlyKernel()
 	async purgeUserPrivateData(kernelKey: symbol, userId: string): Promise<void> {
 		if (!userId) return;
-		const projectIds = await this.projects.listPrivateProjectIdsByOwner(kernelKey, userId);
-		if (projectIds.length === 0) return;
-
-		for (const projectId of projectIds) {
-			// Issues + sus adjuntos ("pm-issue") y comentarios (targetType "pm-issue").
-			let issueIds: string[] = [];
-			try {
-				issueIds = await this.issues.listIssueIdsByProject(kernelKey, projectId);
-			} catch (e) {
-				this.logger.logWarn(`Purga PM: no se pudieron listar issues de ${projectId}: ${(e as Error).message}`);
-			}
-			for (const issueId of issueIds) {
-				if (this.#issueCommentsManager) {
-					try {
-						await this.#issueCommentsManager.purgeByTarget(kernelKey, "pm-issue", issueId);
-					} catch (e) {
-						this.logger.logWarn(`Purga PM: comentarios de issue ${issueId}: ${(e as Error).message}`);
-					}
-				}
-				if (this.#issueAttachmentsManager) {
-					try {
-						await this.#issueAttachmentsManager.forceDeleteByOwner(kernelKey, "pm-issue", issueId);
-					} catch (e) {
-						this.logger.logWarn(`Purga PM: adjuntos de issue ${issueId}: ${(e as Error).message}`);
-					}
-				}
-			}
-			try {
-				await this.issues.forceDeleteByProject(kernelKey, projectId);
-				await this.sprints.forceDeleteByProject(kernelKey, projectId);
-				await this.milestones.forceDeleteByProject(kernelKey, projectId);
-			} catch (e) {
-				this.logger.logWarn(`Purga PM: cascada de ${projectId}: ${(e as Error).message}`);
-			}
+		const removed = await purgePrivateProjectData(
+			{
+				projects: this.projects,
+				issues: this.issues,
+				sprints: this.sprints,
+				milestones: this.milestones,
+				comments: this.#issueCommentsManager,
+				attachments: this.#issueAttachmentsManager,
+				logger: this.logger,
+			},
+			kernelKey,
+			userId
+		);
+		if (removed !== null) {
+			this.logger.logInfo(`Purga PM: ${removed} proyecto(s) privado(s) del usuario ${userId} eliminados en cascada`);
 		}
-
-		const removed = await this.projects.forceDeleteProjects(kernelKey, projectIds);
-		this.logger.logInfo(`Purga PM: ${removed} proyecto(s) privado(s) del usuario ${userId} eliminados en cascada`);
 	}
 
 	private async waitForMongo(): Promise<void> {

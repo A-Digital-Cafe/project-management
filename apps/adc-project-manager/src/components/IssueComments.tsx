@@ -34,6 +34,7 @@ export function IssueComments({ issueId, caller, canComment = true, canModerate 
 	const [loading, setLoading] = useState(true);
 	const [loadingMore, setLoadingMore] = useState(false);
 	const [posting, setPosting] = useState(false);
+	const [accessDenied, setAccessDenied] = useState(false);
 
 	const [rootDraftBlocks, setRootDraftBlocks] = useState<Block[]>([]);
 	const [rootDraftAttachmentIds, setRootDraftAttachmentIds] = useState<string[]>([]);
@@ -47,15 +48,18 @@ export function IssueComments({ issueId, caller, canComment = true, canModerate 
 	useEffect(() => {
 		(async () => {
 			setLoading(true);
+			setAccessDenied(false);
 			try {
 				const [pageRes, draftRes] = await Promise.all([
-					pmApi.listIssueComments(issueId, { limit: COMMENT_PAGE_LIMIT }),
-					pmApi.getIssueCommentDraft(issueId, { parentId: null, editingCommentId: null }).catch(() => null),
+					pmApi.listIssueComments(issueId, { limit: COMMENT_PAGE_LIMIT, silent: true }),
+					pmApi.getIssueCommentDraft(issueId, { parentId: null, editingCommentId: null, silent: true }).catch(() => null),
 				]);
 				if (pageRes.success && pageRes.data) {
 					setFlatComments(pageRes.data.items);
 					setCursor(pageRes.data.nextCursor ?? null);
 					setHasMore(!!pageRes.data.nextCursor);
+				} else if (pageRes.status === 403 || pageRes.errorKey === "COMMENT_FORBIDDEN") {
+					setAccessDenied(true);
 				}
 				if (draftRes?.success && draftRes.data?.draft) {
 					setRootDraftBlocks(draftRes.data.draft.blocks ?? []);
@@ -246,12 +250,13 @@ export function IssueComments({ issueId, caller, canComment = true, canModerate 
 				canComment,
 				canModerate,
 			}}
+			accessDenied={accessDenied}
 			submitting={posting}
 			loading={loading}
 			hasMore={hasMore}
 			loadingMore={loadingMore}
 			attachmentUrls={attachmentUrls}
-			initialDraftBlocks={rootDraftBlocks as StencilBlock[]}
+			initialDraftBlocks={rootDraftBlocks}
 			initialDraftAttachmentIds={rootDraftAttachmentIds}
 			onadcSubmit={(ev) => handleSubmit(ev.detail)}
 			onadcDelete={(ev) => handleDelete(ev.detail)}

@@ -6,30 +6,12 @@ import { pmApi } from "./utils/pm-api.ts";
 import { identityPmApi } from "./utils/identity-api.ts";
 import type { Permission } from "@common/types/identity/Permission.ts";
 import type { Project } from "@common/types/project-manager/Project.ts";
-import { canAccessProjects } from "./utils/permissions.ts";
+import { parseRoute, resolveProjectAccess } from "./utils/route.ts";
 import { ProjectListView } from "./pages/ProjectListView.tsx";
 import { ProjectDetailView } from "./pages/ProjectDetailView.tsx";
 import { LandingView } from "./pages/LandingView.tsx";
 import { clearErrors } from "@ui-library/utils/adc-fetch";
 import { getSession } from "@ui-library/utils/session";
-
-/**
- * Routing:
- *   /                                      → Project list
- *   /:orgSlug/:projectSlug                 → Project detail (default: issues tab)
- *   /:orgSlug/:projectSlug/:tab            → Issues | Sprints | Milestones
- *   orgSlug === "default" ⇒ proyecto global
- */
-const VALID_TABS = new Set(["board", "backlog", "calendar", "sprints", "milestones", "settings"]);
-
-function parseRoute(path: string): { orgSlug?: string; projectSlug?: string; tab?: string } {
-	const parts = path.replace(/^\/+/, "").split("/").filter(Boolean);
-	if (parts.length >= 2) {
-		const tab = parts[2] && VALID_TABS.has(parts[2]) ? parts[2] : "board";
-		return { orgSlug: parts[0], projectSlug: parts[1], tab };
-	}
-	return {};
-}
 
 export default function App() {
 	const { t, ready } = useTranslation({ namespace: "adc-project-manager", autoLoad: true });
@@ -58,58 +40,53 @@ export default function App() {
 		return slug;
 	}, []);
 
+	// Restaura el proyecto seleccionado a partir de la URL actual (si la hay).
+	const restoreFromUrl = useCallback(async () => {
+		const route = parseRoute(router.getCurrentPath());
+		if (!route.orgSlug || !route.projectSlug) return;
+		const res = await pmApi.getProjectBySlug(route.orgSlug, route.projectSlug);
+		if (res.success && res.data) {
+			setSelectedProject(res.data);
+			setSelectedOrgSlug(route.orgSlug);
+			setActiveTab(route.tab || "board");
+		} else {
+			setSelectedProject(null);
+			router.navigate("/");
+		}
+	}, []);
+
 	const loadPermissions = useCallback(async () => {
 		setLoading(true);
 		clearErrors();
 		const session = await getSession(true);
-		if (session.authenticated && session.user) {
-			const userPerms = session.user.perms ?? [];
-			const userId = session.user.id;
-			const groupIds = session.user.groupIds ?? [];
-			setPerms(userPerms);
-			setOrgId(session.user.orgId || undefined);
-			setIsAdmin(!!session.user.isAdmin);
-			setIsOrgAdmin(!!session.user.isOrgAdmin);
-			setCaller({ userId, groupIds });
-
-			// El acceso al app no requiere permiso formal PM.READ: un usuario que
-			// sea miembro de al menos un proyecto también debe poder entrar.
-			// Si no tiene permiso formal, consultamos la lista de proyectos visibles.
-			let allowed = canAccessProjects(userPerms);
-			if (!allowed) {
-				const listRes = await pmApi.listProjects();
-				allowed = !!(listRes.success && listRes.data?.projects?.length);
-			}
-			// Cualquier usuario autenticado puede crear un proyecto privado, así
-			// que admitimos el acceso aunque todavía no tenga proyectos.
-			if (!allowed && userId) allowed = true;
-			if (!allowed) {
-				setUnauthorized(true);
-				setLoading(false);
-				return;
-			}
-
-			// Resolver slug de la org propia (o "default" para contexto global)
-			const ownSlug = await resolveOrgSlug(session.user.orgId);
-			setOwnOrgSlug(ownSlug);
-			// Restore from URL
-			const route = parseRoute(router.getCurrentPath());
-			if (route.orgSlug && route.projectSlug) {
-				const res = await pmApi.getProjectBySlug(route.orgSlug, route.projectSlug);
-				if (res.success && res.data) {
-					setSelectedProject(res.data);
-					setSelectedOrgSlug(route.orgSlug);
-					setActiveTab(route.tab || "board");
-				} else {
-					setSelectedProject(null);
-					router.navigate("/");
-				}
-			}
-		} else {
+		const user = session.authenticated ? session.user : null;
+		if (!user) {
 			setUnauthorized(true);
+			setLoading(false);
+			return;
 		}
+
+		const userPerms = user.perms ?? [];
+		setPerms(userPerms);
+		setOrgId(user.orgId || undefined);
+		setIsAdmin(!!user.isAdmin);
+		setIsOrgAdmin(!!user.isOrgAdmin);
+		setCaller({ userId: user.id, groupIds: user.groupIds ?? [] });
+
+		// El acceso al app no requiere permiso formal PM.READ: miembros de algún
+		// proyecto o usuarios que puedan crear uno privado también entran.
+		if (!(await resolveProjectAccess(userPerms, user.id))) {
+			setUnauthorized(true);
+			setLoading(false);
+			return;
+		}
+
+		// Resolver slug de la org propia (o "default" para contexto global) y
+		// restaurar el proyecto seleccionado desde la URL.
+		setOwnOrgSlug(await resolveOrgSlug(user.orgId));
+		await restoreFromUrl();
 		setLoading(false);
-	}, []);
+	}, [resolveOrgSlug, restoreFromUrl]);
 
 	useEffect(() => {
 		loadPermissions();
