@@ -172,7 +172,7 @@ export class IssueCommentsEndpoints {
 		const svc = IssueCommentsEndpoints.service;
 		const { issue, commentCtx } = await buildIssueResourceCtx(svc, IssueCommentsEndpoints.kernelKey, ctx, { requireAuth: true });
 		await attachFreshAuthorProfileToCtx(svc, commentCtx);
-		return svc.issueComments.create(commentCtx, {
+		const comment = await svc.issueComments.create(commentCtx, {
 			targetType: TARGET_TYPE,
 			targetId: issue.id,
 			parentId: ctx.data.parentId ?? null,
@@ -180,6 +180,10 @@ export class IssueCommentsEndpoints {
 			attachmentIds: ctx.data.attachmentIds,
 			label: ctx.data.label,
 		});
+		// Avisos (fire-and-forget): participantes del issue + usuarios mencionados.
+		void svc.notifications(IssueCommentsEndpoints.kernelKey).issueCommented(issue, commentCtx.userId);
+		void svc.notifications(IssueCommentsEndpoints.kernelKey).issueMentions(issue, ctx.data.blocks, commentCtx.userId);
+		return comment;
 	}
 
 	@RegisterEndpoint({

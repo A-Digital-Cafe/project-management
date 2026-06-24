@@ -61,12 +61,12 @@ export class OrganizationRequestManager {
 		};
 	}
 
-	#projectSlug(): string {
-		const slug =
-			this.config.organizationRequestsProjectId?.trim() ||
-			this.config.orgManagementProjectId?.trim() ||
-			"";
+	#rawProjectSlug(): string {
+		return this.config.organizationRequestsProjectId?.trim() || this.config.orgManagementProjectId?.trim() || "";
+	}
 
+	#projectSlug(): string {
+		const slug = this.#rawProjectSlug();
 		if (!slug) {
 			throw new ProjectManagerError(
 				503,
@@ -75,6 +75,15 @@ export class OrganizationRequestManager {
 			);
 		}
 		return slug;
+	}
+
+	/**
+	 * Ruta de app del tablero de solicitudes (proyecto global, `/default/:slug`) para
+	 * enlazar notificaciones a administradores; `null` si el proyecto no está configurado.
+	 */
+	get appPath(): string | null {
+		const slug = this.#rawProjectSlug();
+		return slug ? `/default/${slug}` : null;
 	}
 }
 

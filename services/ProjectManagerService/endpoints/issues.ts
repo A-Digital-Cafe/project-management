@@ -93,6 +93,9 @@ export class IssueEndpoints {
 				.delete(caller.userId, { targetType: "pm-issue-description", targetId: issue.id })
 				.catch(() => undefined);
 		}
+		// Avisos (fire-and-forget): asignados + mencionados en la descripción.
+		void service.notifications(IssueEndpoints.kernelKey).issueAssigned(issue, caller.userId);
+		void service.notifications(IssueEndpoints.kernelKey).issueMentions(issue, data.description, caller.userId);
 		return await attachAssigneeProfiles(service, issue);
 	}
 
@@ -142,6 +145,11 @@ export class IssueEndpoints {
 				.delete(caller.userId, { targetType: "pm-issue-description", targetId: updated.id })
 				.catch(() => undefined);
 		}
+		// Solo si cambió el estado/columna (no en cada edición): aviso a los participantes.
+		if (updates.columnKey !== undefined) void service.notifications(IssueEndpoints.kernelKey).issueStatusChanged(updated, caller.userId);
+		// Mencionados en la descripción editada.
+		if (updates.description !== undefined)
+			void service.notifications(IssueEndpoints.kernelKey).issueMentions(updated, updates.description, caller.userId);
 		return await attachAssigneeProfiles(service, updated);
 	}
 
@@ -212,6 +220,8 @@ export class IssueEndpoints {
 			}
 		}
 
+		// Cambio de estado/columna: aviso a los participantes (fire-and-forget).
+		void service.notifications(IssueEndpoints.kernelKey).issueStatusChanged(updated, caller.userId);
 		return await attachAssigneeProfiles(service, updated);
 	}
 

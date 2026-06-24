@@ -4,6 +4,7 @@ import { projectSchema, sprintSchema, milestoneSchema, issueSchema } from "./dom
 import { ProjectManager, SprintManager, MilestoneManager, IssueManager, OrganizationRequestManager, SupportTicketManager } from "./dao/index.js";
 import { type IAuthVerifier, type AuthVerifierGetter } from "@common/types/auth-verifier.ts";
 import type IdentityManagerService from "@services/core/IdentityManagerService/index.js";
+import { SystemRole } from "@services/core/IdentityManagerService/defaults/systemRoles.js";
 import type { EndpointCtx } from "@services/core/EndpointManagerService/index.js";
 import { EnableEndpoints, DisableEndpoints } from "@services/core/EndpointManagerService/index.js";
 import { ProjectEndpoints } from "./endpoints/projects.js";
@@ -22,7 +23,7 @@ import type { Project } from "@common/types/project-manager/Project.ts";
 import type { Sprint } from "@common/types/project-manager/Sprint.ts";
 import type { Milestone } from "@common/types/project-manager/Milestone.ts";
 import type { Issue } from "@common/types/project-manager/Issue.ts";
-import type { CallerMembership, PMCtx } from "./dao/projects.ts";
+import type { CallerMembership, PMCtx, ProjectInternals } from "./dao/projects.ts";
 import { Kernel } from "@kernel";
 import { hasGlobalAdminRole, isOrgAdminOrPM } from "./utils/pm-roles.ts";
 import type AttachmentsUtility from "@utilities/attachments/attachments-utility/index.js";
@@ -38,6 +39,7 @@ import { ProjectManagerError as ProjectManagerErrorRef } from "@common/types/cus
 import { createQuotaTrackerGetter, registerStorageApp } from "@services/data/StorageQuotaService/index.js";
 import { purgePrivateProjectData } from "./maintenance.ts";
 import { reconcileTicketBoards, type TicketBoardsConfig } from "./boards.ts";
+import { NotifyManager } from "./notify.ts";
 
 /** Mínimo de almacenamiento garantizado para adjuntos de issues/comentarios. */
 
@@ -53,10 +55,13 @@ export default class ProjectManagerService extends BaseService {
 	#issueAttachmentsManager: AttachmentsManager | null = null;
 	#issueCommentsManager: CommentsManager | null = null;
 	#issueDescriptionDrafts: DraftsRepository | null = null;
+	#notifyManager: NotifyManager | null = null;
 
 	#authVerifier: IAuthVerifier | null = null;
 	#identity: IdentityManagerService | null = null;
 	#internalRoles: ReturnType<IdentityManagerService["_internal"]>["roles"] | null = null;
+	#internalOrgs: ReturnType<IdentityManagerService["_internal"]>["organizations"] | null = null;
+	#projectInternals: ProjectInternals | null = null;
 
 	private mongoProvider!: MongoProvider;
 	readonly #kernelRef: Kernel;
@@ -97,6 +102,7 @@ export default class ProjectManagerService extends BaseService {
 		this.#identity = this.#kernelRef.registry.getService<IdentityManagerService>("IdentityManagerService");
 		const internalIdentity = this.#identity?._internal(kernelKey) ?? null;
 		this.#internalRoles = internalIdentity?.roles ?? null;
+		this.#internalOrgs = internalIdentity?.organizations ?? null;
 		// Resolver de tiers: usuarios → tier de cuenta; orgs → tier de organización.
 		const tierResolver = createPMTierResolver(
 			internalIdentity?.users ?? { getUser: async () => null },
@@ -110,6 +116,7 @@ export default class ProjectManagerService extends BaseService {
 
 		this.#projectManager = new ProjectManager(ProjectModel, kernelKey, this.logger, tierResolver, this.#getAuthVerifier);
 		const projectInternals = this.#projectManager.getInternals(kernelKey);
+		this.#projectInternals = projectInternals;
 		this.#sprintManager = new SprintManager(SprintModel, projectInternals, kernelKey, this.logger, tierResolver, this.#getAuthVerifier);
 		this.#milestoneManager = new MilestoneManager(
 			MilestoneModel,
@@ -130,6 +137,15 @@ export default class ProjectManagerService extends BaseService {
 			this.#issueManager,
 			(this.config?.private ?? {}) as { supportTicketsProjectId?: string; orgManagementProjectId?: string }
 		);
+
+		// Notificaciones de dominio: emisor desacoplado + resolutores (la enumeración
+		// de admins va por el gate `_internal(kernelKey)`, no por una API pública).
+		this.#notifyManager = new NotifyManager({
+			emit: (input) => this.emitNotification(input),
+			projectPath: (projectId) => this.#projectPath(projectId),
+			getAdminUserIds: () => internalIdentity?.getUserIdsByRoleName(SystemRole.ADMIN) ?? Promise.resolve([]),
+			orgRequestsPath: () => this.organizationRequests.appPath ?? "/",
+		});
 
 		this.#authVerifier = this.#identity.createAuthVerifier();
 
@@ -300,6 +316,30 @@ export default class ProjectManagerService extends BaseService {
 	get issues(): IssueManager {
 		if (!this.#issueManager) throw new Error("IssueManager not initialized");
 		return this.#issueManager;
+	}
+
+	/**
+	 * Notificaciones de dominio de PM (issues, menciones, solicitudes de org).
+	 * Gateado con `@OnlyKernel()`: el caller debe presentar la `kernelKey`, de modo
+	 * que un módulo no confiable cargado en un kernel comprometido no pueda emitir
+	 * ni spoofear notificaciones a usuarios arbitrarios.
+	 */
+	@OnlyKernel()
+	notifications(_kernelKey: symbol): NotifyManager {
+		if (!this.#notifyManager) throw new Error("NotifyManager not initialized");
+		return this.#notifyManager;
+	}
+
+	/**
+	 * Ruta de app de un proyecto (`/:orgSlug/:projectSlug`, o `/default/:slug` si es
+	 * global) para enlazar notificaciones. El cliente la resuelve a puerto (dev) o
+	 * subdominio (prod). Devuelve `/` (lista de proyectos) si no se puede resolver.
+	 */
+	async #projectPath(projectId: string): Promise<string> {
+		const project = await this.#projectInternals?.fetchProject(projectId).catch(() => null);
+		if (!project?.slug) return "/";
+		const orgSlug = project.orgId ? (await this.#internalOrgs?.resolveOrganizationSlug(project.orgId).catch(() => null))?.slug : "default";
+		return orgSlug ? `/${orgSlug}/${project.slug}` : "/";
 	}
 	get organizationRequests(): OrganizationRequestManager {
 		if (!this.#organizationRequestManager) throw new Error("OrganizationRequestManager not initialized");

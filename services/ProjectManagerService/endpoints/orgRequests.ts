@@ -110,10 +110,15 @@ export class OrganizationRequestEndpoints {
 		if (!ctx.user?.id) throw new AuthorizationError("Debes iniciar sesión para solicitar una organización", "NO_TOKEN");
 
 		const input = normalizeInput(ctx.data);
-		return OrganizationRequestEndpoints.service.organizationRequests.create(OrganizationRequestEndpoints.kernelKey, input, {
+		const result = await OrganizationRequestEndpoints.service.organizationRequests.create(OrganizationRequestEndpoints.kernelKey, input, {
 			userId: ctx.user.id,
 			email: ctx.user.email,
 			ip: ctx.ip,
 		});
+		// Aviso a los administradores de plataforma (fire-and-forget).
+		void OrganizationRequestEndpoints.service
+			.notifications(OrganizationRequestEndpoints.kernelKey)
+			.orgRequestReceived(result.ticketId, result.ticketKey, ctx.user.id);
+		return result;
 	}
 }
