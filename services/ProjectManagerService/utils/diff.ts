@@ -27,21 +27,24 @@ export function buildDiffEntries(current: Issue, updates: Partial<Issue>, byUser
 	return entries;
 }
 
+function arraysEqual(a: unknown[], b: unknown[]): boolean {
+	if (a.length !== b.length) return false;
+	return a.every((item, i) => isEqual(item, b[i]));
+}
+
+function objectsEqual(a: unknown, b: unknown): boolean {
+	try {
+		return JSON.stringify(a) === JSON.stringify(b);
+	} catch {
+		return false;
+	}
+}
+
 function isEqual(a: unknown, b: unknown): boolean {
 	if (a === b) return true;
 	if (a == null || b == null) return a == null && b == null;
 	if (a instanceof Date && b instanceof Date) return a.getTime() === b.getTime();
-	if (Array.isArray(a) && Array.isArray(b)) {
-		if (a.length !== b.length) return false;
-		for (let i = 0; i < a.length; i++) if (!isEqual(a[i], b[i])) return false;
-		return true;
-	}
-	if (typeof a === "object" && typeof b === "object") {
-		try {
-			return JSON.stringify(a) === JSON.stringify(b);
-		} catch {
-			return false;
-		}
-	}
+	if (Array.isArray(a) && Array.isArray(b)) return arraysEqual(a, b);
+	if (typeof a === "object" && typeof b === "object") return objectsEqual(a, b);
 	return false;
 }
