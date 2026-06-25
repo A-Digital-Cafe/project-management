@@ -41,25 +41,18 @@ export function IssueCard({ issue, isDraggable, muted = false, customFieldDefs, 
 	const { t } = useTranslation({ namespace: "adc-project-manager" });
 	const activeBadges = customFieldDefs ? collectActiveBadges(issue, customFieldDefs) : [];
 
-	const handleDragStart = (e: React.DragEvent<HTMLDivElement>) => {
+	const handleDragStart = (e: React.DragEvent<HTMLButtonElement>) => {
 		e.dataTransfer.effectAllowed = "move";
 		e.dataTransfer.setData("text/plain", issue.id);
 	};
 
 	return (
-		<div
+		<button
+			type="button"
 			draggable={isDraggable}
 			onDragStart={isDraggable ? handleDragStart : undefined}
 			onClick={onOpen}
-			role="button"
-			tabIndex={0}
-			onKeyDown={(e) => {
-				if (e.key === "Enter" || e.key === " ") {
-					e.preventDefault();
-					onOpen();
-				}
-			}}
-			className={`rounded-lg bg-surface border border-text/15 shadow-sm p-3 space-y-1.5 hover:shadow-md transition-shadow cursor-pointer ${muted ? "opacity-40 grayscale" : ""}`}
+			className={`block w-full text-left rounded-lg bg-surface border border-text/15 shadow-sm p-3 space-y-1.5 hover:shadow-md transition-shadow cursor-pointer ${muted ? "opacity-40 grayscale" : ""}`}
 		>
 			<div className="flex items-center justify-between gap-2 text-[10px] font-mono text-muted">
 				<span>{issue.key}</span>
@@ -90,6 +83,6 @@ export function IssueCard({ issue, isDraggable, muted = false, customFieldDefs, 
 					</adc-badge>
 				)}
 			</div>
-		</div>
+		</button>
 	);
 }
