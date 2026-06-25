@@ -3,7 +3,7 @@ import { BaseService } from "@services/BaseService.js";
 import { projectSchema, sprintSchema, milestoneSchema, issueSchema } from "./domain/index.js";
 import { ProjectManager, SprintManager, MilestoneManager, IssueManager, OrganizationRequestManager, SupportTicketManager } from "./dao/index.js";
 import { type IAuthVerifier, type AuthVerifierGetter } from "@common/types/auth-verifier.ts";
-import type IdentityManagerService from "@services/core/IdentityManagerService/index.js";
+import type { IIdentityManagerService } from "@common/types/identity/IIdentityManagerService.js";
 import { SystemRole } from "@services/core/IdentityManagerService/defaults/systemRoles.js";
 import type { EndpointCtx } from "@services/core/EndpointManagerService/index.js";
 import { EnableEndpoints, DisableEndpoints } from "@services/core/EndpointManagerService/index.js";
@@ -37,6 +37,7 @@ import { issueCommentsChecker } from "./permissions/issueComments.ts";
 import { createPMTierResolver } from "./utils/tier-resolver.ts";
 import { ProjectManagerError as ProjectManagerErrorRef } from "@common/types/custom-errors/ProjectManagerError.ts";
 import { createQuotaTrackerGetter, registerStorageApp } from "@services/data/StorageQuotaService/index.js";
+import type { IStorageQuotaService } from "@common/types/storage/IStorageQuotaService.js";
 import { purgePrivateProjectData } from "./maintenance.ts";
 import { reconcileTicketBoards, type TicketBoardsConfig } from "./boards.ts";
 import { NotifyManager } from "./notify.ts";
@@ -58,17 +59,15 @@ export default class ProjectManagerService extends BaseService {
 	#notifyManager: NotifyManager | null = null;
 
 	#authVerifier: IAuthVerifier | null = null;
-	#identity: IdentityManagerService | null = null;
-	#internalRoles: ReturnType<IdentityManagerService["_internal"]>["roles"] | null = null;
-	#internalOrgs: ReturnType<IdentityManagerService["_internal"]>["organizations"] | null = null;
+	#identity: IIdentityManagerService | null = null;
+	#internalRoles: ReturnType<IIdentityManagerService["_internal"]>["roles"] | null = null;
+	#internalOrgs: ReturnType<IIdentityManagerService["_internal"]>["organizations"] | null = null;
 	#projectInternals: ProjectInternals | null = null;
 
 	private mongoProvider!: MongoProvider;
-	readonly #kernelRef: Kernel;
 
 	constructor(kernel: Kernel, options?: any) {
 		super(kernel, options);
-		this.#kernelRef = kernel;
 	}
 
 	/** Re-registra la app en StorageQuotaService cuando éste se reinicia (dep opcional). */
@@ -99,8 +98,8 @@ export default class ProjectManagerService extends BaseService {
 		this.mongoProvider = this.getMyProvider<MongoProvider>("object/mongo");
 		await this.waitForMongo();
 
-		this.#identity = this.#kernelRef.registry.getService<IdentityManagerService>("IdentityManagerService");
-		const internalIdentity = this.#identity?._internal(kernelKey) ?? null;
+		this.#identity = this.getMyService<IIdentityManagerService>("IdentityManagerService");
+		const internalIdentity = this.#identity?._internal(this.getCapability()) ?? null;
 		this.#internalRoles = internalIdentity?.roles ?? null;
 		this.#internalOrgs = internalIdentity?.organizations ?? null;
 		// Resolver de tiers: usuarios → tier de cuenta; orgs → tier de organización.
@@ -168,7 +167,7 @@ export default class ProjectManagerService extends BaseService {
 				},
 				permissionChecker: issueAttachmentsChecker,
 				kernelKey,
-				quota: { appId: "project-manager", getTracker: createQuotaTrackerGetter(this.#kernelRef) },
+				quota: { appId: "project-manager", getTracker: createQuotaTrackerGetter(() => this.tryGetMyService<IStorageQuotaService>("StorageQuotaService")) },
 				logger: this.logger,
 			});
 
@@ -178,7 +177,7 @@ export default class ProjectManagerService extends BaseService {
 				label: "Projects",
 				computeUsage: () => issueAttachments.aggregateUsageByUser(kernelKey),
 			};
-			this.#reRegisterStorage = () => registerStorageApp(this.#kernelRef, kernelKey, quotaApp);
+			this.#reRegisterStorage = () => registerStorageApp(() => this.tryGetMyService<IStorageQuotaService>("StorageQuotaService"), this.getCapability(), quotaApp);
 			this.#reRegisterStorage();
 
 			this.#issueCommentsManager = commentsUtil.createCommentsManager({
@@ -349,7 +348,7 @@ export default class ProjectManagerService extends BaseService {
 		if (!this.#supportTicketManager) throw new Error("SupportTicketManager not initialized");
 		return this.#supportTicketManager;
 	}
-	get identity(): IdentityManagerService {
+	get identity(): IIdentityManagerService {
 		if (!this.#identity) throw new Error("IdentityManagerService not initialized");
 		return this.#identity;
 	}
@@ -385,7 +384,7 @@ export default class ProjectManagerService extends BaseService {
 
 	/**
 	 * Purga en cascada los datos PRIVADOS de un usuario tras expirar su retención
-	 * (invocado por IdentityManagerService). Borra SÓLO sus proyectos privados
+	 * (invocado por IIdentityManagerService). Borra SÓLO sus proyectos privados
 	 * (`visibility=private`, `ownerId=userId`) y, en cascada, sus issues (con
 	 * adjuntos y comentarios), sprints y milestones. Los tableros de organización
 	 * a los que pertenezca quedan intactos (no se consultan aquí).
