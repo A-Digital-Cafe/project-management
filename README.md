@@ -1,4 +1,4 @@
-# project-management
+# project-management [![Security](https://github.com/A-Digital-Cafe/project-management/actions/workflows/security.yml/badge.svg)](https://github.com/A-Digital-Cafe/project-management/actions/workflows/security.yml)
 
 Preset de gestión de proyectos. Provee `ProjectManagerService` (proyectos, sprints, milestones, issues, comentarios y adjuntos, con persistencia en MongoDB) y la app `adc-project-manager`.
 
