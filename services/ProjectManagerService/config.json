@@ -1,5 +1,6 @@
 {
 	"name": "ProjectManagerService",
+	"uiName": "Proyectos",
 	"privileges": ["identity:internal", "storage:register"],
 	"version": "1.0.0",
 	"failOnError": false,
