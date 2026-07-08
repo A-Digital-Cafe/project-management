@@ -40,8 +40,9 @@ export const identityPmApi = {
 	/** Lookup individual por id (para resolver chips de miembros ya seleccionados). */
 	getUser: (userId: string) => identityApi.get<ClientUser>(`/users/${userId}`),
 
-	/** Lista grupos visibles al caller. Opcionalmente filtrable por org. */
-	listGroups: (orgId?: string) => identityApi.get<ClientGroup[]>("/groups", orgId ? { params: { orgId } } : undefined),
+	/** Lista grupos visibles al caller (paginado): `{ groups, total }`. Opcionalmente filtrable por org. */
+	listGroups: (orgId?: string) =>
+		identityApi.get<{ groups: ClientGroup[]; total: number }>("/groups", orgId ? { params: { orgId } } : undefined),
 
 	/** Búsqueda incremental de grupos por nombre/descripción (min 2 chars). */
 	searchGroups: (q: string, orgId?: string) =>
