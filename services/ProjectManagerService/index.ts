@@ -19,6 +19,7 @@ import { SupportTicketEndpoints } from "./endpoints/supportTickets.js";
 import { PMScopes } from "@common/types/project-manager/permissions.ts";
 import { CRUDXAction } from "@common/types/Actions.ts";
 import { OnlyKernel } from "@adc/utils/decorators/OnlyKernel.ts";
+import { Scope, assertScope, type CapabilityToken } from "@common/security/Capability.ts";
 import type { Project } from "@common/types/project-manager/Project.ts";
 import type { Sprint } from "@common/types/project-manager/Sprint.ts";
 import type { Milestone } from "@common/types/project-manager/Milestone.ts";
@@ -63,6 +64,8 @@ export default class ProjectManagerService extends BaseService {
 	#internalRoles: ReturnType<IIdentityManagerService["_internal"]>["roles"] | null = null;
 	#internalOrgs: ReturnType<IIdentityManagerService["_internal"]>["organizations"] | null = null;
 	#projectInternals: ProjectInternals | null = null;
+	/** Token de ciclo de vida propio (para la purga interna que ejecuta con SU token, no el del caller). */
+	#lifecycleKey: symbol | null = null;
 
 	private mongoProvider!: MongoProvider;
 
@@ -94,6 +97,7 @@ export default class ProjectManagerService extends BaseService {
 	})
 	async start(kernelKey: symbol): Promise<void> {
 		await super.start(kernelKey);
+		this.#lifecycleKey = kernelKey;
 
 		this.mongoProvider = this.getMyProvider<MongoProvider>("object/mongo");
 		await this.waitForMongo();
@@ -389,11 +393,13 @@ export default class ProjectManagerService extends BaseService {
 	 * adjuntos y comentarios), sprints y milestones. Los tableros de organización
 	 * a los que pertenezca quedan intactos (no se consultan aquí).
 	 *
-	 * Protegido por `@OnlyKernel()`: requiere la `kernelKey` del kernel.
+	 * Handshake cross‑módulo: el caller (IdentityManager) prueba scope `identity:internal`;
+	 * PM purga con SU PROPIO token de ciclo de vida, no con el del caller.
 	 */
-	@OnlyKernel()
-	async purgeUserPrivateData(kernelKey: symbol, userId: string): Promise<void> {
-		if (!userId) return;
+	async purgeUserPrivateData(cap: CapabilityToken, userId: string): Promise<void> {
+		assertScope(cap, Scope.IdentityInternal);
+		const lifecycleKey = this.#lifecycleKey;
+		if (!userId || !lifecycleKey) return;
 		const removed = await purgePrivateProjectData(
 			{
 				projects: this.projects,
@@ -404,7 +410,7 @@ export default class ProjectManagerService extends BaseService {
 				attachments: this.#issueAttachmentsManager,
 				logger: this.logger,
 			},
-			kernelKey,
+			lifecycleKey,
 			userId
 		);
 		if (removed !== null) {
