@@ -141,11 +141,13 @@ export default class ProjectManagerService extends BaseService {
 		this.#organizationRequestManager = new OrganizationRequestManager(
 			this.#projectManager,
 			this.#issueManager,
+			this.logger,
 			(this.config?.private ?? {}) as { organizationRequestsProjectId?: string; orgManagementProjectId?: string }
 		);
 		this.#supportTicketManager = new SupportTicketManager(
 			this.#projectManager,
 			this.#issueManager,
+			this.logger,
 			(this.config?.private ?? {}) as { supportTicketsProjectId?: string; orgManagementProjectId?: string }
 		);
 

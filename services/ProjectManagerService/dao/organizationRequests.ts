@@ -1,7 +1,8 @@
 import type { Block } from "@common/ADC/types/learning.ts";
 import { ProjectManagerError } from "@common/types/custom-errors/ProjectManagerError.ts";
 import type { CreateOrganizationRequestInput, OrganizationRequestIssueResponse } from "@common/types/project-manager/OrganizationRequest.ts";
-import { TICKET_COLUMN_MAP, type CommonTicketColumnKey } from "../boards.ts";
+import { ORG_REQUEST_COLUMN_KEY, ensureTicketBoard, type CommonTicketColumnKey } from "../boards.ts";
+import type { ILogger } from "@interfaces/utils/ILogger.js";
 import type { IssueManager } from "./issues.js";
 import type { ProjectManager } from "./projects.js";
 
@@ -20,6 +21,7 @@ export class OrganizationRequestManager {
 	constructor(
 		private readonly projects: ProjectManager,
 		private readonly issues: IssueManager,
+		private readonly logger: ILogger,
 		private readonly config: OrganizationRequestConfig = {}
 	) {}
 
@@ -28,8 +30,9 @@ export class OrganizationRequestManager {
 		input: CreateOrganizationRequestInput,
 		caller: OrganizationRequestCaller
 	): Promise<OrganizationRequestIssueResponse> {
-		const slug = this.#projectSlug();
-		const project = await this.projects.getInternals(kernelKey).fetchGlobalProjectBySlug(slug);
+		this.#projectSlug(); // valida configuración antes de tocar la base.
+		// Autogenera/reconcilia el tablero en la propia request (ver `ensureTicketBoard`).
+		const project = await ensureTicketBoard({ projects: this.projects, logger: this.logger }, kernelKey, "org-requests", this.config);
 		if (!project) {
 			throw new ProjectManagerError(
 				503,
@@ -38,8 +41,7 @@ export class OrganizationRequestManager {
 			);
 		}
 
-		
-		const columnKey: CommonTicketColumnKey = TICKET_COLUMN_MAP["org-request"];
+		const columnKey: CommonTicketColumnKey = ORG_REQUEST_COLUMN_KEY;
 
 		const issue = await this.issues.createInternal(
 			kernelKey,

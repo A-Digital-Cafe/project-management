@@ -7,7 +7,8 @@ import type {
 	SupportTicketConfig,
 } from "@common/types/project-manager/SupportTicket.ts";
 import { TICKET_TYPE_LABELS } from "@common/types/project-manager/SupportTicket.ts";
-import { TICKET_COLUMN_MAP, TICKET_TYPE_CATEGORIES, type CommonTicketColumnKey } from "../boards.ts";
+import { TICKET_COLUMN_MAP, TICKET_TYPE_CATEGORIES, ensureTicketBoard, type CommonTicketColumnKey } from "../boards.ts";
+import type { ILogger } from "@interfaces/utils/ILogger.js";
 import { sha256Hex } from "@common/utils/crypto.ts";
 import type { CustomFieldValue } from "@common/types/project-manager/CustomField.ts";
 import { deriveBugBountyStatus, type BugBountyPublicEntry } from "@common/types/project-manager/BugBounty.ts";
@@ -18,12 +19,16 @@ export class SupportTicketManager {
 	constructor(
 		private readonly projects: ProjectManager,
 		private readonly issues: IssueManager,
+		private readonly logger: ILogger,
 		private readonly config: SupportTicketConfig = {}
 	) {}
 
 	async create(kernelKey: symbol, input: CreateSupportTicketInput, caller: SupportTicketCaller): Promise<SupportTicketIssueResponse> {
-		const slug = this.#projectSlug();
-		const project = await this.projects.getInternals(kernelKey).fetchGlobalProjectBySlug(slug);
+		this.#projectSlug(); // valida configuración antes de tocar la base.
+		// Autogenera/reconcilia el tablero en la propia request: si falta el proyecto,
+		// una columna o un campo canónico, el ticket no queda huérfano esperando al
+		// próximo arranque del servicio.
+		const project = await ensureTicketBoard({ projects: this.projects, logger: this.logger }, kernelKey, "tickets", this.config);
 		if (!project) {
 			throw new ProjectManagerError(
 				503,

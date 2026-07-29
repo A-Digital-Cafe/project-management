@@ -111,6 +111,17 @@ export class IssueManager {
 			throw new ProjectManagerError(500, "INVALID_COLUMN", "Proyecto sin columna inicial configurada");
 		}
 
+		// Una columna inexistente dejaría el issue fuera de todos los carriles del
+		// kanban (invisible hasta la reconciliación del próximo arranque): ante eso
+		// cae a la columna default y avisa, en vez de crearlo huérfano en silencio.
+		const columnKey = input.columnKey ?? autoColumn.key;
+		const targetColumn = project.kanbanColumns.some((c) => c.key === columnKey) ? columnKey : autoColumn.key;
+		if (targetColumn !== columnKey) {
+			this.logger.logWarn(
+				`El tablero "${project.slug}" no tiene la columna "${columnKey}": el issue se crea en "${autoColumn.key}".`
+			);
+		}
+
 		const number = await this.projectInternals.incrementIssueCounter(project.id);
 		const prefix = deriveProjectKey(project.slug || project.name);
 		const key = formatIssueKey(prefix, number);
@@ -129,7 +140,7 @@ export class IssueManager {
 			key,
 			title: input.title,
 			description: sanitizeBlocks(normalizeDescription(input.description), { maxBlocks: ISSUE_DESCRIPTION_MAX_BLOCKS }),
-			columnKey: input.columnKey ?? autoColumn.key,
+			columnKey: targetColumn,
 			category: input.category ?? "task",
 			sprintId: input.sprintId,
 			milestoneId: input.milestoneId,
