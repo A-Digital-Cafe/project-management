@@ -94,11 +94,12 @@ export class ProjectEndpoints {
 		// org requiere admin/PM de la org, privado cualquier usuario autenticado.
 		deferAuth: true,
 		options: {
+			successStatus: 201,
 			rateLimit: PROJECT_CREATE_RATE_LIMIT,
 			tag: "ProjectManagerService/Projects",
 			summary: "Crea un proyecto",
 			description: "La autorización depende de `visibility`: `public` requiere admin global; `org` requiere admin/PM de la org; `private` cualquier usuario autenticado. El `ownerId` se asigna en servidor.",
-			schema: { body: PS.CreateProjectBody, response: { 200: PS.ProjectResponse } },
+			schema: { body: PS.CreateProjectBody, response: { 201: PS.ProjectResponse } },
 		},
 	})
 	static async create(ctx: EndpointCtx<Record<string, string>, Partial<Project> & { name: string; slug: string }>) {

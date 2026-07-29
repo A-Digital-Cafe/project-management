@@ -161,10 +161,11 @@ export class IssueCommentsEndpoints {
 		url: "/api/pm/issues/:id/comments",
 		deferAuth: true,
 		options: {
+			successStatus: 201,
 			rateLimit: COMMENT_RATE_LIMIT,
 			tag: "ProjectManagerService/Comments",
 			summary: "Crea un comentario en un issue",
-			schema: { params: IdParams, body: CS.CreateCommentBody, response: { 200: CS.CommentResponse } },
+			schema: { params: IdParams, body: CS.CreateCommentBody, response: { 201: CS.CommentResponse } },
 		},
 	})
 	static async create(ctx: EndpointCtx<{ id: string }, CreateBody>) {

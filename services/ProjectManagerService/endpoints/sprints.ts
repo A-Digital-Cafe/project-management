@@ -39,10 +39,11 @@ export class SprintEndpoints {
 		url: "/api/pm/projects/:projectId/sprints",
 		deferAuth: true,
 		options: {
+			successStatus: 201,
 			rateLimit: SPRINT_CREATE_RATE_LIMIT,
 			tag: "ProjectManagerService/Sprints",
 			summary: "Crea un sprint",
-			schema: { params: ProjectIdParams, body: SS.CreateSprintBody, response: { 200: SS.SprintResponse } },
+			schema: { params: ProjectIdParams, body: SS.CreateSprintBody, response: { 201: SS.SprintResponse } },
 		},
 	})
 	static async create(ctx: EndpointCtx<{ projectId: string }, Partial<Sprint> & { name: string }>) {

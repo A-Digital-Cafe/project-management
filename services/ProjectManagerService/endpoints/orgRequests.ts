@@ -99,11 +99,12 @@ export class OrganizationRequestEndpoints {
 		url: "/api/pm/organization-requests",
 		deferAuth: true,
 		options: {
+			successStatus: 201,
 			rateLimit: ORG_REQUEST_RATE_LIMIT,
 			tag: "ProjectManagerService/OrgRequests",
 			summary: "Crea una solicitud de organización",
 			description: "Requiere usuario autenticado. Rate limit: 1 solicitud por IP cada 3 días. `email` y `url` se validan en servidor.",
-			schema: { body: OS.CreateOrgRequestBody, response: { 200: TicketIssueResponse } },
+			schema: { body: OS.CreateOrgRequestBody, response: { 201: TicketIssueResponse } },
 		},
 	})
 	static async create(ctx: EndpointCtx<never, CreateOrganizationRequestInput>) {

@@ -135,11 +135,12 @@ export class SupportTicketEndpoints {
 		method: "POST",
 		url: "/api/pm/support-tickets",
 		options: {
+			successStatus: 201,
 			rateLimit: SUPPORT_TICKET_RATE_LIMIT,
 			tag: "ProjectManagerService/SupportTickets",
 			summary: "Crea un ticket de soporte",
 			description: "Requiere usuario autenticado. Rate limit: 5 tickets por IP cada 3 días. El `email`, `title` y `description` se validan en servidor.",
-			schema: { body: TS.CreateSupportTicketBody, response: { 200: TicketIssueResponse } },
+			schema: { body: TS.CreateSupportTicketBody, response: { 201: TicketIssueResponse } },
 		},
 	})
 	static async create(ctx: EndpointCtx<never, CreateSupportTicketInput>) {

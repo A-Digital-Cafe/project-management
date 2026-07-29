@@ -60,10 +60,11 @@ export class IssueEndpoints {
 		url: "/api/pm/projects/:projectId/issues",
 		deferAuth: true,
 		options: {
+			successStatus: 201,
 			rateLimit: ISSUE_CREATE_RATE_LIMIT,
 			tag: "ProjectManagerService/Issues",
 			summary: "Crea un issue en el proyecto",
-			schema: { params: ProjectIdParams, body: IS.CreateIssueBody, response: { 200: IS.IssueResponse } },
+			schema: { params: ProjectIdParams, body: IS.CreateIssueBody, response: { 201: IS.IssueResponse } },
 		},
 	})
 	static async create(ctx: EndpointCtx<{ projectId: string }, Partial<Issue> & { title: string }>) {

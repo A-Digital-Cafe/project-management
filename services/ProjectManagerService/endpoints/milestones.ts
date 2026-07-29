@@ -38,10 +38,11 @@ export class MilestoneEndpoints {
 		url: "/api/pm/projects/:projectId/milestones",
 		deferAuth: true,
 		options: {
+			successStatus: 201,
 			rateLimit: MILESTONE_CREATE_RATE_LIMIT,
 			tag: "ProjectManagerService/Milestones",
 			summary: "Crea un milestone",
-			schema: { params: ProjectIdParams, body: MS.CreateMilestoneBody, response: { 200: MS.MilestoneResponse } },
+			schema: { params: ProjectIdParams, body: MS.CreateMilestoneBody, response: { 201: MS.MilestoneResponse } },
 		},
 	})
 	static async create(ctx: EndpointCtx<{ projectId: string }, Partial<Milestone> & { name: string }>) {
