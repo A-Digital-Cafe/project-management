@@ -7,6 +7,8 @@
 		"paths": {
 			"@adc/utils/*": ["./../../../../src/utils/*"],
 			"@apps/*": ["./../../../../src/apps/*"],
+			"@media-ui-library/utils/*": ["./../../../../presets/adc-media/apps/media-ui-library/utils/*"],
+			"@media-ui-library/*": ["./../../../../presets/adc-media/apps/media-ui-library/src/*"],
 			"@ui-library/utils/*": ["./../../../../src/apps/public/00-adc-ui-library/utils/*"],
 			"@ui-library/*": ["./../../../../src/apps/public/00-adc-ui-library/src/*"],
 			"@common/*": ["./../../../../src/common/*"]
@@ -16,7 +18,8 @@
 		"src/**/*",
 		"*.ts",
 		"../../../../globals.d.ts",
-		"./../../../../src/apps/public/00-adc-ui-library/utils/react-jsx.d.ts",
+		"./../../../../src/apps/public/00-adc-ui-library/utils/react-jsx.ts",
+		"./../../../../presets/adc-media/apps/media-ui-library/utils/react-jsx.ts",
 		"./../../../../src/apps/public/00-adc-ui-library/utils/i18n-react.ts",
 		"./../../../../src/apps/public/00-adc-ui-library/utils/error-handler.ts"
 	]

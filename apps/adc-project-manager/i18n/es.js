@@ -129,7 +129,7 @@ export default {
 		moveHint: "Arrastra un issue a otra sección para cambiar su sprint.",
 		countDone: "{{done}}/{{total}} finalizados",
 		descriptionPlaceholder: "Describe el issue con bloques...",
-		descriptionEmpty: "Sin descripción",
+		descriptionEmpty: "Sin descripción (Doble clic para editar)",
 		descriptionClickToEdit: "Clic para editar",
 		descriptionDoubleClickToEdit: "Doble clic para editar",
 		descriptionUnsavedChanges: "Tienes cambios sin guardar — clic para retomar"

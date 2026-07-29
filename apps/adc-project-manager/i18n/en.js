@@ -129,7 +129,7 @@ export default {
 		moveHint: "Drag an issue onto another section to change its sprint.",
 		countDone: "{{done}}/{{total}} done",
 		descriptionPlaceholder: "Describe the issue with blocks...",
-		descriptionEmpty: "No description",
+		descriptionEmpty: "No description (Double-click to edit)",
 		descriptionClickToEdit: "Click to edit",
 		descriptionDoubleClickToEdit: "Double-click to edit",
 		descriptionUnsavedChanges: "You have unsaved changes — click to resume"
