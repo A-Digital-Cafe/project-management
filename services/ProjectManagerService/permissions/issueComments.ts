@@ -37,20 +37,27 @@ function isAssignee(issue: Issue, userId: string, groupIds: string[]): boolean {
  * - `moderate`: owner del proyecto o admin global / org admin.
  *
  * Todas las acciones requieren que el proyecto sea accesible en el contexto de
- * org (token-orgId vs project-orgId).
+ * org (token-orgId vs project-orgId), salvo para roles globales (admin global /
+ * PM write global), que gestionan cualquier proyecto sin switchear de contexto.
  */
 export const issueCommentsChecker: CommentPermissionChecker = async (action, ctx, comment) => {
 	const c = ctx as IssueCommentEndpointCtx;
 	if (!c.project || !c.issue) return false;
-	if (!isProjectAccessibleInOrgContext(c.project, c.tokenOrgId)) return false;
+
+	// Los roles globales (admin global / PM write global) no están sujetos al aislamiento
+	// por contexto de org: `listVisibleProjects` les devuelve también los proyectos
+	// org-scoped y `canEditIssueDescription` ya los deja operar sin switchear. Sin este
+	// bypass el issue se abre pero sus comentarios responden 403. Admin/PM *de la org*
+	// sí queda detrás del gate: debe switchear de contexto primero.
+	const isGlobalPM = c.pmCtx.isGlobalAdmin || c.pmCtx.hasGlobalPMWrite;
+	if (!isGlobalPM && !isProjectAccessibleInOrgContext(c.project, c.tokenOrgId)) return false;
 
 	const groupIds = c.pmCtx.groupIds;
 	const isOwner = c.project.ownerId === c.userId;
 	const isMember = isProjectMember(c.project, { id: c.userId, groupIds }, c.tokenOrgId);
 	const isReporter = c.issue.reporterId === c.userId;
 	const isIssueAssignee = isAssignee(c.issue, c.userId, groupIds);
-	const isAdmin =
-		c.pmCtx.isGlobalAdmin || c.pmCtx.hasGlobalPMWrite || (c.project.orgId ? await c.pmCtx.isOrgAdminOrPM(c.project.orgId) : false);
+	const isAdmin = isGlobalPM || (c.project.orgId ? await c.pmCtx.isOrgAdminOrPM(c.project.orgId) : false);
 
 	const baseAccess = isOwner || isMember || isReporter || isIssueAssignee || isAdmin;
 

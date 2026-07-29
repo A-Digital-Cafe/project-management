@@ -25,19 +25,23 @@ function isAssignee(issue: Issue, userId: string, groupIds: string[]): boolean {
  * - `read`: miembro/reporter/assignee/owner del proyecto, admin global o de la org.
  * - `write`: igual que `read` (cualquier usuario con acceso al issue puede subir).
  * - `delete`: el uploader, owner del proyecto o admin.
+ *
+ * El aislamiento por contexto de org aplica a todos salvo a los roles globales
+ * (mismo criterio que `issueCommentsChecker`).
  */
 export const issueAttachmentsChecker: AttachmentPermissionChecker = async (action, ctx, attachment) => {
 	const c = ctx as IssueAttachmentEndpointCtx;
 	if (!c.project || !c.issue) return false;
-	if (!isProjectAccessibleInOrgContext(c.project, c.tokenOrgId)) return false;
+
+	const isGlobalPM = c.pmCtx.isGlobalAdmin || c.pmCtx.hasGlobalPMWrite;
+	if (!isGlobalPM && !isProjectAccessibleInOrgContext(c.project, c.tokenOrgId)) return false;
 
 	const groupIds = c.pmCtx.groupIds;
 	const isOwner = c.project.ownerId === c.userId;
 	const isMember = isProjectMember(c.project, { id: c.userId, groupIds }, c.tokenOrgId);
 	const isReporter = c.issue.reporterId === c.userId;
 	const isIssueAssignee = isAssignee(c.issue, c.userId, groupIds);
-	const isAdmin =
-		c.pmCtx.isGlobalAdmin || c.pmCtx.hasGlobalPMWrite || (c.project.orgId ? await c.pmCtx.isOrgAdminOrPM(c.project.orgId) : false);
+	const isAdmin = isGlobalPM || (c.project.orgId ? await c.pmCtx.isOrgAdminOrPM(c.project.orgId) : false);
 
 	const baseAccess = isOwner || isMember || isReporter || isIssueAssignee || isAdmin;
 
