@@ -1,7 +1,11 @@
 {
 	"name": "ProjectManagerService",
 	"uiName": "Proyectos",
-	"privileges": ["identity:internal", "storage:register"],
+	"privileges": [
+		"identity:internal",
+		"storage:register",
+		"plans:register"
+	],
 	"version": "1.0.0",
 	"failOnError": false,
 	"providers": [
@@ -57,6 +61,11 @@
 		},
 		{
 			"name": "StorageQuotaService",
+			"version": "latest",
+			"optional": true
+		},
+		{
+			"name": "PlanService",
 			"version": "latest",
 			"optional": true
 		}

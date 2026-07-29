@@ -23,6 +23,8 @@ export const TICKET_COLUMN_MAP = {
 	suggestion: "support",
 	security: "security",
 	data: "support",
+	// La ampliación es una solicitud de una organización, igual que el alta.
+	expansion: "organizations",
 } as const satisfies Record<"org-request" | SupportTicketType, CommonTicketColumnKey>;
 
 /** Mapea cada tipo de ticket a la categoría del issue que se crea. */
@@ -31,6 +33,7 @@ export const TICKET_TYPE_CATEGORIES: Record<SupportTicketType, string> = {
 	suggestion: "task",
 	security: "security",
 	data: "task",
+	expansion: "task",
 };
 
 /** Columnas de ciclo de vida (no son destino de creación; solo de movimiento). */

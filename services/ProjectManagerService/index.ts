@@ -36,6 +36,9 @@ import type InternalS3Provider from "@providers/object/internal-s3-provider/inde
 import { issueAttachmentsChecker } from "./permissions/issueAttachments.ts";
 import { issueCommentsChecker } from "./permissions/issueComments.ts";
 import { createPMTierResolver } from "./utils/tier-resolver.ts";
+import { PM_PLAN_FEATURES, PM_PLAN_DEFAULTS } from "./utils/plan-features.ts";
+import { createEntitlementsGetter, registerPlanFeatures } from "@common/types/plans/consumers.js";
+import type { IPlanService } from "@common/types/plans/IPlanService.js";
 import { ProjectManagerError as ProjectManagerErrorRef } from "@common/types/custom-errors/ProjectManagerError.ts";
 import { createQuotaTrackerGetter, registerStorageApp } from "@services/data/StorageQuotaService/index.js";
 import type { IStorageQuotaService } from "@common/types/storage/IStorageQuotaService.js";
@@ -78,6 +81,12 @@ export default class ProjectManagerService extends BaseService {
 
 	public override onDependencyRestored(dependencyName: string): void {
 		if (dependencyName === "StorageQuotaService") this.#reRegisterStorage?.();
+		if (dependencyName === "PlanService") this.#registerPlanFeatures();
+	}
+
+	/** Declara las features de PM y sus defaults en el motor de planes (fail-open). */
+	#registerPlanFeatures(): void {
+		void registerPlanFeatures(() => this.tryGetMyService<IPlanService>("PlanService"), this.getCapability(), PM_PLAN_FEATURES, PM_PLAN_DEFAULTS);
 	}
 
 	readonly #getAuthVerifier: AuthVerifierGetter = () => this.#authVerifier;
@@ -106,11 +115,10 @@ export default class ProjectManagerService extends BaseService {
 		const internalIdentity = this.#identity?._internal(this.getCapability()) ?? null;
 		this.#internalRoles = internalIdentity?.roles ?? null;
 		this.#internalOrgs = internalIdentity?.organizations ?? null;
-		// Resolver de tiers: usuarios → tier de cuenta; orgs → tier de organización.
-		const tierResolver = createPMTierResolver(
-			internalIdentity?.users ?? { getUser: async () => null },
-			internalIdentity?.organizations ?? { getOrganization: async () => null }
-		);
+		// Límites vía PlanService (único resolver de tiers de la plataforma). Getter
+		// perezoso: es dependencia opcional, y si falta se degrada al tier más alto.
+		const tierResolver = createPMTierResolver(createEntitlementsGetter(() => this.tryGetMyService<IPlanService>("PlanService")));
+		this.#registerPlanFeatures();
 
 		const ProjectModel = this.mongoProvider.createModel<Project>("projects", projectSchema);
 		const SprintModel = this.mongoProvider.createModel<Sprint>("sprints", sprintSchema);
