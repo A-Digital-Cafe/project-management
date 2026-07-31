@@ -3,8 +3,8 @@
  * (`registerFeatures`, scope `plans:register`).
  *
  * ⚠️ Los valores de los tiers pagos son **defaults de DESARROLLO**, no la oferta
- * comercial. La oferta real vive fuera del repo (`private/pricing/plans.json`)
- * y se publica con `calc-pricing.mjs push`, que congela los planes para que
+ * comercial. La oferta real se define fuera del código y se publica sobre
+ * `PlanService` (`PUT /api/plans/admin/plans`), que congela los planes para que
  * estos defaults no los pisen. El único valor "real" acá es el piso
  * `free`/`default`, que además es el fallback sin motor de planes.
  */
