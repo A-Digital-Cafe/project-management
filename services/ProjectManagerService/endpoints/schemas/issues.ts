@@ -71,8 +71,6 @@ export const IssuesListResponse = Type.Object({
 
 export const IssueHistoryResponse = Type.Object({ updateLog: Type.Array(UpdateLogEntrySchema) });
 
-// ── Query ────────────────────────────────────────────────────────────────
-
 export const ListIssuesQuery = Type.Object({
 	sprintId: Type.Optional(Type.String()),
 	milestoneId: Type.Optional(Type.String()),
@@ -81,8 +79,6 @@ export const ListIssuesQuery = Type.Object({
 	q: Type.Optional(Type.String({ description: "Búsqueda por texto" })),
 	orderBy: Type.Optional(Type.String({ description: "Campo de ordenación" })),
 });
-
-// ── Body ─────────────────────────────────────────────────────────────────
 
 export const CreateIssueBody = Type.Object({
 	title: Type.String({ minLength: 1, description: "Título del issue" }),

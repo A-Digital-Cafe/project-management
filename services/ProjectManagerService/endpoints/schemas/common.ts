@@ -28,17 +28,12 @@ export const BlockSchema = Type.Object(
 
 // ── Adjuntos ───────────────────────────────────────────────────────────────
 
-/** Adjunto (DTO público; no expone `bucket` ni `storageKey`). */
-export const AttachmentDto = Type.Object({
-	id: Type.String(),
-	fileName: Type.String(),
-	mimeType: Type.String(),
-	size: Type.Integer(),
-	status: Type.String({ description: "pending | ready" }),
-	uploadedBy: Type.String(),
-	uploadedAt: Type.Optional(Type.String({ format: "date-time" })),
-	createdAt: Type.String({ format: "date-time" }),
-});
+/**
+ * Adjunto (DTO público; no expone `bucket` ni `storageKey`). Re-export del schema
+ * canónico: el DTO lo produce `AttachmentsManager.toDto()`, así que su forma no es de
+ * este servicio.
+ */
+export { AttachmentDtoSchema as AttachmentDto } from "@common/schemas/attachment.ts";
 
 // ── Tickets / solicitudes ───────────────────────────────────────────────────
 

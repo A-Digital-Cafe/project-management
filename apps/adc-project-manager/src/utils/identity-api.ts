@@ -9,7 +9,6 @@ import type { Organization } from "@common/types/identity/Organization.ts";
 const identityApi = createAdcApi({
 	basePath: "/api/identity",
 	devPort: 3000,
-	credentials: process.env.NODE_ENV === "development" ? "include" : "same-origin",
 });
 
 export type UserPreferences = Record<string, unknown>;

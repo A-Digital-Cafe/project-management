@@ -3,21 +3,15 @@ import { AttachmentDto } from "./common.js";
 
 /** Schemas TypeBox para los endpoints de adjuntos de issues. */
 
-// ── Params ───────────────────────────────────────────────────────────────
-
 export const IdAttachmentParams = Type.Object({
 	id: Type.String({ minLength: 1, description: "ID del issue" }),
 	attachmentId: Type.String({ minLength: 1, description: "ID del adjunto" }),
 });
 
-// ── Query ────────────────────────────────────────────────────────────────
-
 export const DownloadQuery = Type.Object({
 	inline: Type.Optional(Type.String({ description: '"1" / "true" para servir inline (Content-Disposition)' })),
 	ttl: Type.Optional(Type.String({ description: "TTL (segundos) de la URL firmada" })),
 });
-
-// ── Body ─────────────────────────────────────────────────────────────────
 
 export const PresignBody = Type.Object({
 	fileName: Type.String({ minLength: 1 }),

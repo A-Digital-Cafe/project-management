@@ -3,8 +3,6 @@ import { BlockSchema, AttachmentDto } from "./common.js";
 
 /** Schemas TypeBox para los endpoints de comentarios de issues. */
 
-// ── Params ───────────────────────────────────────────────────────────────
-
 export const IdCommentParams = Type.Object({
 	id: Type.String({ minLength: 1, description: "ID del issue" }),
 	commentId: Type.String({ minLength: 1, description: "ID del comentario" }),
@@ -21,8 +19,6 @@ export const IdReactionParams = Type.Object({
 	emoji: Type.String({ minLength: 1, description: "Emoji (URL-encoded) de la reacción" }),
 });
 
-// ── Query ────────────────────────────────────────────────────────────────
-
 export const ListCommentsQuery = Type.Object({
 	cursor: Type.Optional(Type.String()),
 	parentId: Type.Optional(Type.String({ description: "Omitir = flat; vacío/null = raíces; valor = replies de ese padre" })),
@@ -38,8 +34,6 @@ export const DraftQuery = Type.Object({
 	parentId: Type.Optional(Type.String()),
 	editingCommentId: Type.Optional(Type.String()),
 });
-
-// ── Body ─────────────────────────────────────────────────────────────────
 
 export const CreateCommentBody = Type.Object({
 	blocks: Type.Array(BlockSchema),

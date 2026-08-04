@@ -81,14 +81,10 @@ export const ProjectsListResponse = Type.Object({ projects: Type.Array(ProjectRe
 
 export const CheckSlugResponse = Type.Object({ available: Type.Boolean() });
 
-// ── Params ─────────────────────────────────────────────────────────────────
-
 export const OrgProjectSlugParams = Type.Object({
 	orgSlug: Type.String({ minLength: 1, description: 'Slug de la organización ("default" = contexto global)' }),
 	projectSlug: Type.String({ minLength: 1, description: "Slug del proyecto" }),
 });
-
-// ── Body ─────────────────────────────────────────────────────────────────
 
 export const CreateProjectBody = Type.Object({
 	name: Type.String({ minLength: 1, description: "Nombre del proyecto" }),
