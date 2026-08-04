@@ -1,5 +1,6 @@
 import { RegisterEndpoint, type EndpointCtx } from "@services/core/EndpointManagerService/index.js";
 import { ProjectManagerError } from "@common/types/custom-errors/ProjectManagerError.ts";
+import { hostnameFromHostHeader } from "@common/utils/url-utils.js";
 import type ProjectManagerService from "../index.js";
 import { buildIssueResourceCtx } from "./utils/issueResourceCtx.ts";
 import * as AS from "./schemas/attachments.js";
@@ -66,6 +67,9 @@ export class IssueAttachmentsEndpoints {
 			size: ctx.data.size,
 			ownerType,
 			ownerId: issue.id,
+			// Con un S3 local, firmar contra el host por el que entró el navegador: si no, la URL
+			// queda atada a `localhost` e inservible desde otro dispositivo de la red.
+			publicHost: hostnameFromHostHeader(ctx.headers.host),
 		});
 	}
 
@@ -102,7 +106,11 @@ export class IssueAttachmentsEndpoints {
 		const { attachmentCtx } = await buildIssueResourceCtx(svc, IssueAttachmentsEndpoints.kernelKey, ctx);
 		const inline = ctx.query.inline === "1" || ctx.query.inline === "true";
 		const ttl = ctx.query.ttl ? Number(ctx.query.ttl) : undefined;
-		const result = await svc.issueAttachments.getDownloadUrl(attachmentCtx, ctx.params.attachmentId, { inline, ttl });
+		const result = await svc.issueAttachments.getDownloadUrl(attachmentCtx, ctx.params.attachmentId, {
+			inline,
+			ttl,
+			publicHost: hostnameFromHostHeader(ctx.headers.host),
+		});
 		return {
 			url: result.url,
 			expiresIn: result.expiresIn,

@@ -164,7 +164,9 @@ export default class ProjectManagerService extends BaseService {
 
 		// --- Attachments + Comments wiring ---
 		try {
-			const s3 = this.getMyProvider<InternalS3Provider>("object/internal-s3-provider");
+			// Getter, no instancia: el provider se resuelve en cada uso para que una recarga
+			// en caliente no deje al manager hablándole a una instancia detenida.
+			const s3 = () => this.getMyProvider<InternalS3Provider>("object/internal-s3-provider");
 			const attachmentsUtil = this.getMyUtility<AttachmentsUtility>("attachments-utility");
 			const commentsUtil = this.getMyUtility<CommentsUtility>("comments-utility");
 			const connection = this.mongoProvider.getConnection();

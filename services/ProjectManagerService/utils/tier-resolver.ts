@@ -19,6 +19,7 @@
 
 import type { Project } from "@common/types/project-manager/Project.ts";
 import type { EntitlementsGetter, FeatureValue, PlanSubject } from "@common/types/plans/index.ts";
+import { createEntitlementsReader, featureNumber as num } from "@common/types/plans/consumers.ts";
 
 /** Límites aplicables a un proyecto concreto (privado o de organización). */
 export interface PMProjectLimits {
@@ -73,15 +74,9 @@ const USER_FALLBACK = PM_FREE_LIMITS;
 const ORG_FALLBACK = PM_ORG_BASE_LIMITS;
 
 export function createPMTierResolver(getEntitlements: EntitlementsGetter): PMTierResolver {
-	const featuresOf = async (subject: PlanSubject): Promise<Record<string, FeatureValue> | null> => {
-		const entitlements = getEntitlements();
-		if (!entitlements) return null;
-		try {
-			return (await entitlements.get(subject)).features;
-		} catch {
-			return null;
-		}
-	};
+	const readEntitlements = createEntitlementsReader(getEntitlements);
+	const featuresOf = async (subject: PlanSubject): Promise<Record<string, FeatureValue> | null> =>
+		(await readEntitlements(subject))?.features ?? null;
 
 	const projectPart = (features: Record<string, FeatureValue> | null, fallback: PMProjectLimits): PMProjectLimits => ({
 		maxIssuesPerProject: num(features?.["pm.maxIssuesPerProject"], fallback.maxIssuesPerProject),
@@ -117,6 +112,3 @@ export function createPMTierResolver(getEntitlements: EntitlementsGetter): PMTie
 	};
 }
 
-function num(value: FeatureValue | undefined, fallback: number): number {
-	return typeof value === "number" ? value : fallback;
-}
