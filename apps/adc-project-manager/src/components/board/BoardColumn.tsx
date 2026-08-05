@@ -14,6 +14,8 @@ interface Props {
 	customFieldDefs?: CustomFieldDef[];
 	wipLimit: number | undefined;
 	overLimit: boolean;
+	/** Issues a mostrar apagados por el modo enfoque (`computeMutedIssueIds`). */
+	mutedIssueIds: ReadonlySet<string>;
 	isDragEnabled: boolean;
 	isDropActive: boolean;
 	onDragOver?: () => void;
@@ -28,6 +30,7 @@ export function BoardColumn({
 	customFieldDefs,
 	wipLimit,
 	overLimit,
+	mutedIssueIds,
 	isDragEnabled,
 	isDropActive,
 	onDragOver,
@@ -93,6 +96,7 @@ export function BoardColumn({
 							key={issue.id}
 							issue={issue}
 							isDraggable={isDragEnabled}
+							muted={mutedIssueIds.has(issue.id)}
 							customFieldDefs={customFieldDefs}
 							onOpen={() => onOpen(issue)}
 						/>

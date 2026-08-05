@@ -5,6 +5,7 @@ import type { Project } from "@common/types/project-manager/Project.ts";
 import type { Issue } from "@common/types/project-manager/Issue.ts";
 import type { TransitionCommentSubmitDetail } from "../components/TransitionCommentModal.tsx";
 import { TransitionCommentModal } from "../components/TransitionCommentModal.tsx";
+import { computeMutedIssueIds } from "@common/utils/project-manager/focus.ts";
 import { useBacklogData } from "../hooks/useBacklogData.ts";
 import { useIssueMover } from "../hooks/useIssueMover.ts";
 import { IssueDialog } from "../components/IssueDialog.tsx";
@@ -40,6 +41,7 @@ export function BoardView({ project, perms, caller }: Readonly<Props>) {
 	const [editingIssue, setEditingIssue] = useState<Issue | null>(null);
 	const [creating, setCreating] = useState(false);
 	const [dragOverColumn, setDragOverColumn] = useState<string | null>(null);
+	const [focusMode, setFocusMode] = useState(false);
 
 	const { issues, setIssues, sprints, milestones, loading, reload } = useBacklogData({
 		projectId: project.id,
@@ -50,6 +52,14 @@ export function BoardView({ project, perms, caller }: Readonly<Props>) {
 	const filteredIssues = useMemo(() => applyFilters(issues, filters, q), [issues, filters, q]);
 
 	const columnsOrdered = useMemo(() => [...project.kanbanColumns].sort((a, b) => a.order - b.order), [project.kanbanColumns]);
+
+	// Modo enfoque: apaga lo que no está en las columnas WIP-limitadas. El control sólo se
+	// ofrece si el proyecto declara límites; sin ellos el helper no tiene sobre qué enfocar.
+	const hasWipLimits = Object.keys(project.settings?.wipLimits ?? {}).length > 0;
+	const mutedIssueIds = useMemo(
+		() => computeMutedIssueIds(project, filteredIssues, focusMode),
+		[project, filteredIssues, focusMode]
+	);
 
 	const byColumn = useMemo(() => {
 		const map = new Map<string, Issue[]>();
@@ -94,6 +104,8 @@ export function BoardView({ project, perms, caller }: Readonly<Props>) {
 				onFiltersChange={setFilters}
 				sprints={sprints}
 				milestones={milestones}
+				focusMode={hasWipLimits ? focusMode : undefined}
+				onFocusModeChange={setFocusMode}
 				trailing={
 					canWriteProjectResource(perms, Scope.ISSUES, project, caller) ? (
 						<adc-button variant="primary" onClick={() => setCreating(true)}>
@@ -122,6 +134,7 @@ export function BoardView({ project, perms, caller }: Readonly<Props>) {
 									customFieldDefs={project.customFieldDefs}
 									wipLimit={wipLimit}
 									overLimit={overLimit}
+									mutedIssueIds={mutedIssueIds}
 									isDragEnabled={isDragEnabled}
 									isDropActive={dragOverColumn === col.key}
 									onDragOver={isDragEnabled ? () => setDragOverColumn(col.key) : undefined}

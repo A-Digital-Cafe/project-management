@@ -140,6 +140,8 @@ export default {
 		auto: "Initial",
 		wipLimitReached: "WIP limit reached ({{limit}})",
 		emptyColumn: "No issues",
+		focusMode: "Focus mode",
+		focusModeHint: "Dims issues outside WIP-limited columns so you finish before starting. Turns on by itself when a column hits its limit.",
 		filterByAssignee: "Assignee",
 		anyAssignee: "Any assignee",
 		anySprint: "Any sprint",

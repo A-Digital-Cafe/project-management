@@ -140,6 +140,8 @@ export default {
 		auto: "Inicial",
 		wipLimitReached: "Límite WIP alcanzado ({{limit}})",
 		emptyColumn: "Sin issues",
+		focusMode: "Modo enfoque",
+		focusModeHint: "Apaga los issues fuera de las columnas con límite WIP para terminar antes de empezar. Se activa solo cuando una columna alcanza su límite.",
 		filterByAssignee: "Asignado",
 		anyAssignee: "Cualquier asignado",
 		anySprint: "Cualquier sprint",

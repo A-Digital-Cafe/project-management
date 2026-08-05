@@ -1,4 +1,4 @@
-import type { ReactNode } from "react";
+import { useEffect, useRef, type ReactNode } from "react";
 import { useTranslation } from "@ui-library/utils/i18n-react";
 import type { Sprint } from "@common/types/project-manager/Sprint.ts";
 import type { Milestone } from "@common/types/project-manager/Milestone.ts";
@@ -16,10 +16,36 @@ interface Props {
 	onFiltersChange: (v: BoardFilterState) => void;
 	sprints: Sprint[];
 	milestones: Milestone[];
+	/** Modo enfoque: `undefined` oculta el control (el proyecto no declara límites WIP). */
+	focusMode?: boolean;
+	onFocusModeChange?: (next: boolean) => void;
 	trailing?: ReactNode;
 }
 
-export function BoardFilters({ q, onQChange, filters, onFiltersChange, sprints, milestones, trailing }: Readonly<Props>) {
+/** `adc-toggle` emite el evento custom `adcChange`: en React se engancha por ref. */
+function FocusToggle({ checked, label, onChange }: Readonly<{ checked: boolean; label: string; onChange: (next: boolean) => void }>) {
+	const ref = useRef<HTMLElement>(null);
+	useEffect(() => {
+		const el = ref.current;
+		if (!el) return;
+		const handler = (e: Event) => onChange((e as CustomEvent<boolean>).detail);
+		el.addEventListener("adcChange", handler);
+		return () => el.removeEventListener("adcChange", handler);
+	}, [onChange]);
+	return <adc-toggle ref={ref} checked={checked} label={label} />;
+}
+
+export function BoardFilters({
+	q,
+	onQChange,
+	filters,
+	onFiltersChange,
+	sprints,
+	milestones,
+	focusMode,
+	onFocusModeChange,
+	trailing,
+}: Readonly<Props>) {
 	const { t } = useTranslation({ namespace: "adc-project-manager" });
 
 	const sprintOptions = JSON.stringify([
@@ -55,6 +81,11 @@ export function BoardFilters({ q, onQChange, filters, onFiltersChange, sprints, 
 					onadcChange={(e: any) => onFiltersChange({ ...filters, milestoneId: e.detail || undefined })}
 				/>
 			</div>
+			{focusMode !== undefined && onFocusModeChange && (
+				<div className="pb-1" title={t("board.focusModeHint")}>
+					<FocusToggle checked={focusMode} label={t("board.focusMode")} onChange={onFocusModeChange} />
+				</div>
+			)}
 			{trailing && <div className="ml-auto">{trailing}</div>}
 		</div>
 	);
