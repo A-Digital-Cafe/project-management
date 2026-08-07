@@ -42,7 +42,7 @@ import type { IPlanService } from "@common/types/plans/IPlanService.js";
 import { ProjectManagerError as ProjectManagerErrorRef } from "@common/types/custom-errors/ProjectManagerError.ts";
 import { createQuotaTrackerGetter, registerStorageApp } from "@services/data/StorageQuotaService/index.js";
 import type { IStorageQuotaService } from "@common/types/storage/IStorageQuotaService.js";
-import { purgePrivateProjectData } from "./maintenance.ts";
+import { purgeUserPMData } from "./maintenance.ts";
 import { reconcileTicketBoards, type TicketBoardsConfig } from "./boards.ts";
 import { NotifyManager } from "./notify.ts";
 
@@ -141,12 +141,16 @@ export default class ProjectManagerService extends BaseService {
 		this.#organizationRequestManager = new OrganizationRequestManager(
 			this.#projectManager,
 			this.#issueManager,
+			IssueModel,
+			kernelKey,
 			this.logger,
 			(this.config?.private ?? {}) as { organizationRequestsProjectId?: string; orgManagementProjectId?: string }
 		);
 		this.#supportTicketManager = new SupportTicketManager(
 			this.#projectManager,
 			this.#issueManager,
+			IssueModel,
+			kernelKey,
 			this.logger,
 			(this.config?.private ?? {}) as { supportTicketsProjectId?: string; orgManagementProjectId?: string }
 		);
@@ -403,7 +407,9 @@ export default class ProjectManagerService extends BaseService {
 	 * (invocado por IIdentityManagerService). Borra SÓLO sus proyectos privados
 	 * (`visibility=private`, `ownerId=userId`) y, en cascada, sus issues (con
 	 * adjuntos y comentarios), sprints y milestones. Los tableros de organización
-	 * a los que pertenezca quedan intactos (no se consultan aquí).
+	 * a los que pertenezca quedan intactos (no se consultan aquí). Los tickets de
+	 * soporte no se borran (son del canal de soporte, no del usuario) pero se
+	 * anonimizan.
 	 *
 	 * Handshake cross‑módulo: el caller (IdentityManager) prueba scope `identity:internal`;
 	 * PM purga con SU PROPIO token de ciclo de vida, no con el del caller.
@@ -412,12 +418,14 @@ export default class ProjectManagerService extends BaseService {
 		assertScope(cap, Scope.IdentityInternal);
 		const lifecycleKey = this.#lifecycleKey;
 		if (!userId || !lifecycleKey) return;
-		const removed = await purgePrivateProjectData(
+		const { projects, tickets, orgRequests } = await purgeUserPMData(
 			{
 				projects: this.projects,
 				issues: this.issues,
 				sprints: this.sprints,
 				milestones: this.milestones,
+				supportTickets: this.supportTickets,
+				organizationRequests: this.organizationRequests,
 				comments: this.#issueCommentsManager,
 				attachments: this.#issueAttachmentsManager,
 				logger: this.logger,
@@ -425,8 +433,11 @@ export default class ProjectManagerService extends BaseService {
 			lifecycleKey,
 			userId
 		);
-		if (removed !== null) {
-			this.logger.logInfo(`Purga PM: ${removed} proyecto(s) privado(s) del usuario ${userId} eliminados en cascada`);
+		if (projects > 0 || tickets > 0 || orgRequests > 0) {
+			this.logger.logInfo(
+				`Purga PM del usuario ${userId}: ${projects} proyecto(s) privado(s) eliminados en cascada, ` +
+					`${tickets} ticket(s) y ${orgRequests} solicitud(es) de organización anonimizados`
+			);
 		}
 	}
 

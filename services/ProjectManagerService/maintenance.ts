@@ -1,7 +1,7 @@
 import type { ILogger } from "@interfaces/utils/ILogger.js";
 import type { AttachmentsManager } from "@utilities/attachments/attachments-utility/index.js";
 import type { CommentsManager } from "@utilities/comments/comments-utility/index.js";
-import type { ProjectManager, IssueManager, SprintManager, MilestoneManager } from "./dao/index.js";
+import type { ProjectManager, IssueManager, SprintManager, MilestoneManager, SupportTicketManager, OrganizationRequestManager } from "./dao/index.js";
 
 /** Managers necesarios para purgar en cascada los datos privados de un usuario. */
 export interface PMPurgeDeps {
@@ -9,9 +9,18 @@ export interface PMPurgeDeps {
 	readonly issues: IssueManager;
 	readonly sprints: SprintManager;
 	readonly milestones: MilestoneManager;
+	readonly supportTickets: SupportTicketManager;
+	readonly organizationRequests: OrganizationRequestManager;
 	readonly comments: CommentsManager | null;
 	readonly attachments: AttachmentsManager | null;
 	readonly logger: ILogger;
+}
+
+/** Resultado de la purga: proyectos privados borrados y tickets anonimizados. */
+export interface PMPurgeResult {
+	readonly projects: number;
+	readonly tickets: number;
+	readonly orgRequests: number;
 }
 
 /** Ejecuta un paso de purga tolerando fallos (sólo loguea un warning y continúa). */
@@ -46,18 +55,28 @@ async function purgeProjectCascade(deps: PMPurgeDeps, kernelKey: symbol, project
 }
 
 /**
- * Purga en cascada los proyectos PRIVADOS de un usuario y todo su contenido
- * (issues con adjuntos/comentarios, sprints, milestones). Tolera fallos por
- * proyecto/issue (loguea warnings y continúa).
- *
- * Devuelve el número de proyectos eliminados, o `null` si el usuario no tenía
- * proyectos privados (nada que purgar).
+ * Purga los datos de un usuario en PM: cascada de sus proyectos PRIVADOS con todo
+ * su contenido (issues con adjuntos/comentarios, sprints, milestones) + anonimización
+ * de sus tickets de soporte, que viven en un proyecto global y por eso no los
+ * alcanza la cascada. Tolera fallos por paso (loguea warnings y continúa).
  */
-export async function purgePrivateProjectData(deps: PMPurgeDeps, kernelKey: symbol, userId: string): Promise<number | null> {
+export async function purgeUserPMData(deps: PMPurgeDeps, kernelKey: symbol, userId: string): Promise<PMPurgeResult> {
+	let projects = 0;
 	const projectIds = await deps.projects.listPrivateProjectIdsByOwner(kernelKey, userId);
-	if (projectIds.length === 0) return null;
+	if (projectIds.length > 0) {
+		for (const projectId of projectIds) await purgeProjectCascade(deps, kernelKey, projectId);
+		projects = await deps.projects.forceDeleteProjects(kernelKey, projectIds);
+	}
 
-	for (const projectId of projectIds) await purgeProjectCascade(deps, kernelKey, projectId);
+	let tickets = 0;
+	await purgeStep(deps.logger, "anonimización de tickets de soporte", async () => {
+		tickets = await deps.supportTickets.anonymizeReporter(kernelKey, userId);
+	});
 
-	return deps.projects.forceDeleteProjects(kernelKey, projectIds);
+	let orgRequests = 0;
+	await purgeStep(deps.logger, "anonimización de solicitudes de organización", async () => {
+		orgRequests = await deps.organizationRequests.anonymizeRequester(kernelKey, userId);
+	});
+
+	return { projects, tickets, orgRequests };
 }

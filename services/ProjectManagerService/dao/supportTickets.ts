@@ -1,4 +1,6 @@
+import type { Model } from "mongoose";
 import type { Block } from "@common/ADC/types/learning.ts";
+import type { Issue } from "@common/types/project-manager/Issue.ts";
 import { ProjectManagerError } from "@common/types/custom-errors/ProjectManagerError.ts";
 import type {
 	CreateSupportTicketInput,
@@ -14,11 +16,14 @@ import type { CustomFieldValue } from "@common/types/project-manager/CustomField
 import { deriveBugBountyStatus, type BugBountyPublicEntry } from "@common/types/project-manager/BugBounty.ts";
 import type { IssueManager } from "./issues.js";
 import type { ProjectManager } from "./projects.js";
+import { redactLabeledParagraphs } from "./redact.ts";
 
 export class SupportTicketManager {
 	constructor(
 		private readonly projects: ProjectManager,
 		private readonly issues: IssueManager,
+		private readonly issueModel: Model<Issue>,
+		private readonly kernelKey: symbol,
 		private readonly logger: ILogger,
 		private readonly config: SupportTicketConfig = {}
 	) {}
@@ -61,10 +66,10 @@ export class SupportTicketManager {
 	}
 
 	/**
-	 * Log público de transparencia del bug bounty: id, fecha/hora, hash, estado,
-	 * severidad y descripción original (siempre públicos). El único dato redactado
-	 * es el **handle del reporter**, que solo se incluye si dio consentimiento
-	 * (`publicDisclosure === "true"` y `wantsCredit`). Sin auth.
+	 * Log público de transparencia del bug bounty. Sin auth: id, fecha/hora, hash,
+	 * estado y severidad son siempre públicos. La **descripción original** solo se
+	 * publica si el ticket está `resolved` y el reporter pidió divulgación
+	 * (`publicDisclosure === "true"`); el **handle** además exige `wantsCredit`.
 	 */
 	async listPublicBugBounty(kernelKey: symbol): Promise<BugBountyPublicEntry[]> {
 		const slug = this.#projectSlug();
@@ -78,10 +83,12 @@ export class SupportTicketManager {
 			const cf = (issue.customFields ?? {});
 			// El estado se deriva de la columna actual del ticket en el tablero del PM.
 			const status = deriveBugBountyStatus(issue.columnKey, columnName.get(issue.columnKey));
-			// El consentimiento (publicDisclosure + wantsCredit) solo gatea el HANDLE
-			// del reporter; la descripción y el hash son siempre públicos (transparencia).
 			const disclosed = cf.publicDisclosure === "true";
 			const wantsCredit = cf.wantsCredit === "true";
+			// Publicar los pasos de reproducción antes del fix sería divulgar un 0-day:
+			// la descripción sale sólo con el ticket resuelto Y consentimiento explícito.
+			// El hash, en cambio, no revela nada y es la prueba de no-manipulación.
+			const published = status === "resolved" && disclosed;
 			const reportedAt = typeof cf.reportedAt === "string" ? cf.reportedAt : issue.createdAt.toISOString();
 
 			return {
@@ -91,9 +98,41 @@ export class SupportTicketManager {
 				status,
 				severity: (cf.severity as BugBountyPublicEntry["severity"]) ?? null,
 				creditHandle: disclosed && wantsCredit && typeof cf.creditName === "string" ? cf.creditName : null,
-				description: typeof cf.originalDescription === "string" ? cf.originalDescription : null,
+				description: published && typeof cf.originalDescription === "string" ? cf.originalDescription : null,
 			};
 		});
+	}
+
+	/**
+	 * Desvincula de un usuario los tickets que abrió (purga de cuenta). Los tickets
+	 * viven en un proyecto global, así que no los alcanza la cascada de proyectos
+	 * privados: hay que anonimizarlos acá. Se conserva el ticket (contenido
+	 * operativo del soporte) y su hash; se borran los emails, el vínculo con el
+	 * usuario y el handle de crédito — el consentimiento de atribución muere con
+	 * la cuenta. Uso interno, protegido por `kernelKey`.
+	 */
+	async anonymizeReporter(kernelKey: symbol, userId: string): Promise<number> {
+		if (kernelKey !== this.kernelKey) throw new Error("Acceso denegado: kernel key inválida");
+		if (!userId) return 0;
+
+		const docs = await this.issueModel
+			.find({ "customFields.type": "support_ticket", "customFields.reportedByUserId": userId }, { id: 1, description: 1 })
+			.lean<{ id: string; description: unknown }[]>();
+
+		for (const doc of docs) {
+			const patch: Record<string, unknown> = {
+				reporterId: "",
+				updatedAt: new Date(),
+				"customFields.reporterEmail": null,
+				"customFields.reportedByEmail": null,
+				"customFields.reportedByUserId": null,
+				"customFields.creditName": null,
+			};
+			if (Array.isArray(doc.description)) patch.description = redactLabeledParagraphs(doc.description as Block[], REPORTER_LABELS);
+			await this.issueModel.updateOne({ id: doc.id }, { $set: patch });
+		}
+
+		return docs.length;
 	}
 
 	#projectSlug(): string {
@@ -112,6 +151,17 @@ export class SupportTicketManager {
 		return slug;
 	}
 }
+
+/**
+ * Etiquetas de los párrafos que llevan datos personales del reporter. Se generan
+ * y se redactan por acá: si cambia una, la purga tiene que seguir encontrándola.
+ */
+const REPORTER_LABELS = {
+	contactEmail: "Email de contacto",
+	reporterUser: "Usuario reportante",
+	sessionEmail: "Email de sesión",
+	credit: "Crédito público",
+} as const;
 
 /** Suma `n` días hábiles (lun-vie) a una fecha. */
 function addBusinessDays(from: Date, n: number): Date {
@@ -170,15 +220,15 @@ function supportTicketBlocks(input: CreateSupportTicketInput, caller: SupportTic
 	const blocks: Block[] = [
 		{ type: "heading", level: 3, text: `Ticket de ${TICKET_TYPE_LABELS[input.type].toLowerCase()}` },
 		{ type: "paragraph", text: `Tipo: ${TICKET_TYPE_LABELS[input.type]}` },
-		{ type: "paragraph", text: `Email de contacto: ${input.email}` },
+		{ type: "paragraph", text: `${REPORTER_LABELS.contactEmail}: ${input.email}` },
 		{ type: "heading", level: 3, text: "Descripción" },
 		{ type: "paragraph", text: input.description },
 	];
 
 	blocks.push(
 		{ type: "heading", level: 3, text: "Información del reporte" },
-		{ type: "paragraph", text: `Usuario reportante: ${caller.userId}` },
-		{ type: "paragraph", text: `Email de sesión: ${caller.email || "Anónimo"}` }
+		{ type: "paragraph", text: `${REPORTER_LABELS.reporterUser}: ${caller.userId}` },
+		{ type: "paragraph", text: `${REPORTER_LABELS.sessionEmail}: ${caller.email || "Anónimo"}` }
 	);
 
 	// Recordatorio interno (solo admin) para tickets de seguridad / bug bounty.
@@ -187,12 +237,8 @@ function supportTicketBlocks(input: CreateSupportTicketInput, caller: SupportTic
 		const creditName = wantsCredit ? `SÍ (handle: ${input.creditName || "sin especificar"})` : "no";
 		blocks.push(
 			{ type: "heading", level: 3, text: "Bug bounty — pasos internos (no público)" },
-			{
-				type: "paragraph",
-				text:
-					`Crédito público: ${creditName}. ` +
-					`Preferencia de recompensa: ${input.rewardPreference ?? "sin preferencia"}.`,
-			},
+			{ type: "paragraph", text: `${REPORTER_LABELS.credit}: ${creditName}` },
+			{ type: "paragraph", text: `Preferencia de recompensa: ${input.rewardPreference ?? "sin preferencia"}.` },
 			{ type: "paragraph", text: "1) Triage: reproducir y asignar severidad (low/medium/high/critical) en customFields.severity." },
 			{ type: "paragraph", text: "2) SLA: acusar recibo (slaAckDueAt) y dar ETA (slaEtaDueAt)." },
 			{ type: "paragraph", text: "3) Fix + tests + versión parche; mover la tarjeta a la columna de estado correspondiente." },
@@ -202,7 +248,7 @@ function supportTicketBlocks(input: CreateSupportTicketInput, caller: SupportTic
 			},
 			{
 				type: "paragraph",
-				text: "5) Disclosure: si aceptó crédito, marcar customFields.publicDisclosure=\"true\" para publicar la descripción en el log de transparencia (/status/bounty, debe coincidir con descriptionHash) y registrar addedToAcknowledgments.",
+				text: "5) Disclosure: recién con el ticket resuelto y el OK del reporter, marcar customFields.publicDisclosure=\"true\" para publicar la descripción en el log de transparencia (/status/bounty, debe coincidir con descriptionHash). El handle sale sólo si además wantsCredit=\"true\"; registrar addedToAcknowledgments.",
 			}
 		);
 	}

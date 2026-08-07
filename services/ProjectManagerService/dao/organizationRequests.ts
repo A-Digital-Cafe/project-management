@@ -1,10 +1,13 @@
+import type { Model } from "mongoose";
 import type { Block } from "@common/ADC/types/learning.ts";
+import type { Issue } from "@common/types/project-manager/Issue.ts";
 import { ProjectManagerError } from "@common/types/custom-errors/ProjectManagerError.ts";
 import type { CreateOrganizationRequestInput, OrganizationRequestIssueResponse } from "@common/types/project-manager/OrganizationRequest.ts";
 import { ORG_REQUEST_COLUMN_KEY, ensureTicketBoard, type CommonTicketColumnKey } from "../boards.ts";
 import type { ILogger } from "@interfaces/utils/ILogger.js";
 import type { IssueManager } from "./issues.js";
 import type { ProjectManager } from "./projects.js";
+import { redactLabeledParagraphs } from "./redact.ts";
 
 export interface OrganizationRequestCaller {
 	userId: string;
@@ -17,13 +20,51 @@ interface OrganizationRequestConfig {
 	orgManagementProjectId?: string;
 }
 
+/** Párrafos del bloque "Solicitante": los únicos con datos personales de quien pidió el alta. */
+const REQUESTER_LABELS = {
+	userId: "ID de usuario",
+	sessionEmail: "Email de sesión",
+	ip: "IP",
+} as const;
+
 export class OrganizationRequestManager {
 	constructor(
 		private readonly projects: ProjectManager,
 		private readonly issues: IssueManager,
+		private readonly issueModel: Model<Issue>,
+		private readonly kernelKey: symbol,
 		private readonly logger: ILogger,
 		private readonly config: OrganizationRequestConfig = {}
 	) {}
+
+	/**
+	 * Desvincula de un usuario las solicitudes de organización que abrió (purga de cuenta).
+	 * Igual que los tickets de soporte, viven en un proyecto global y no las alcanza la cascada
+	 * de proyectos privados. Se conserva la solicitud —es el respaldo del alta de una
+	 * organización que puede seguir existiendo— y se borran el email de sesión y la IP.
+	 */
+	async anonymizeRequester(kernelKey: symbol, userId: string): Promise<number> {
+		if (kernelKey !== this.kernelKey) throw new Error("Acceso denegado: kernel key inválida");
+		if (!userId) return 0;
+
+		const docs = await this.issueModel
+			.find({ "customFields.type": "org_creation_request", "customFields.requestedByUserId": userId }, { id: 1, description: 1 })
+			.lean<{ id: string; description: unknown }[]>();
+
+		for (const doc of docs) {
+			const patch: Record<string, unknown> = {
+				reporterId: "",
+				updatedAt: new Date(),
+				"customFields.requestedByUserId": null,
+				"customFields.requestedByEmail": null,
+				"customFields.requestIp": null,
+			};
+			if (Array.isArray(doc.description)) patch.description = redactLabeledParagraphs(doc.description as Block[], REQUESTER_LABELS);
+			await this.issueModel.updateOne({ id: doc.id }, { $set: patch });
+		}
+
+		return docs.length;
+	}
 
 	async create(
 		kernelKey: symbol,

@@ -155,10 +155,10 @@ export class SupportTicketEndpoints {
 
 	/**
 	 * Log público de transparencia del Bug Bounty Program. PÚBLICO (sin auth):
-	 * expone solo id de ticket, fecha/hora, hash SHA-256 de la descripción y
-	 * estado. La descripción y el handle de crédito solo aparecen cuando el
-	 * ticket fue publicado (resuelto + crédito aceptado); la descripción debe
-	 * verificar contra el hash.
+	 * expone siempre id de ticket, fecha/hora, hash SHA-256 de la descripción,
+	 * estado y severidad. La descripción original aparece solo si el ticket está
+	 * resuelto y el reporter pidió divulgación (y verifica contra el hash); el
+	 * handle de crédito exige además que haya pedido crédito.
 	 */
 	@RegisterEndpoint({
 		method: "GET",
@@ -170,7 +170,8 @@ export class SupportTicketEndpoints {
 			cache: { maxAge: 15, staleWhileRevalidate: 30, scope: "public" },
 			tag: "ProjectManagerService/SupportTickets",
 			summary: "Log público de transparencia del bug bounty",
-			description: "Público. Lista id, fecha/hora, hash y estado; descripción y crédito solo si el ticket fue publicado.",
+			description:
+				"Público. Lista id, fecha/hora, hash, estado y severidad. La descripción del reporte solo se incluye si el ticket está resuelto y el reporter consintió divulgarlo; el handle de crédito requiere además su consentimiento de atribución.",
 		},
 	})
 	static async publicBugBounty(_ctx: EndpointCtx) {
