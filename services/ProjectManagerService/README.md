@@ -9,3 +9,6 @@ Gestión de proyectos tipo Jira: proyectos, sprints, milestones, issues, labels,
 - Kanban con columnas configurables y WIP limits (modo foco)
 - Solicitudes de organización vía issue en proyecto configurado
 - Baja/export de cuenta: `purgeUserPrivateData` y `exportUserData` (tickets de soporte propios), handshake `identity:internal`
+- Retención de tickets: trabajo ocioso `support-ticket-retention` (anonimiza → purga según `SUPPORT_TICKET_RETENTION`; nunca un TTL sobre `issues`)
+- Canal de autoridades (`POST /api/pm/support-tickets/authority`): sin sesión, fail-closed contra `AuditLogService` (503 si no hay registro)
+- Crédito de bug bounty revocable sin cuenta (`POST /api/pm/bug-bounty/credit-revocation`, código entregado al reportar)

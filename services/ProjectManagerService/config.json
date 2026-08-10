@@ -4,7 +4,9 @@
 	"privileges": [
 		"identity:internal",
 		"storage:register",
-		"plans:register"
+		"plans:register",
+		"idle:register",
+		"audit:write"
 	],
 	"version": "1.0.0",
 	"failOnError": false,
@@ -61,7 +63,13 @@
 		},
 		{
 			"name": "OperationsService",
-			"version": "latest"
+			"version": "latest",
+			"optional": true
+		},
+		{
+			"name": "AuditLogService",
+			"version": "latest",
+			"optional": true
 		},
 		{
 			"name": "StorageQuotaService",
@@ -77,6 +85,9 @@
 	"private": {
 		"orgManagementProjectId": "${ORG_MANAGEMENT_PROJECT_ID}",
 		"organizationRequestsProjectId": "${PM_ORG_REQUESTS_PROJECT_ID}",
-		"supportTicketsProjectId": "${PM_SUPPORT_TICKETS_PROJECT_ID}"
+		"supportTicketsProjectId": "${PM_SUPPORT_TICKETS_PROJECT_ID}",
+		"ticketRetentionIntervalSeconds": "${PM_TICKET_RETENTION_INTERVAL_SECONDS:-3600}",
+		"ticketRetentionBatchSize": "${PM_TICKET_RETENTION_BATCH_SIZE:-50}",
+		"ticketRetentionBatchBudgetMs": "${PM_TICKET_RETENTION_BATCH_BUDGET_MS:-3000}"
 	}
 }

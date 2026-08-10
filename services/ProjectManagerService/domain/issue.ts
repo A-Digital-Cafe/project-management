@@ -60,3 +60,13 @@ issueSchema.index({ projectId: 1, columnKey: 1 });
 issueSchema.index({ projectId: 1, sprintId: 1 });
 issueSchema.index({ projectId: 1, milestoneId: 1 });
 issueSchema.index({ title: "text" });
+
+// Barrido de retención de tickets de soporte (ver `dao/ticketRetention.ts`). Parcial a propósito:
+// sin el filtro, un índice sobre `customFields` cubriría los issues de todos los proyectos para
+// servir una consulta que sólo mira tickets. Sin él, en cambio, cada turno escanea la colección.
+issueSchema.index(
+	{ "customFields.retentionStage": 1, "customFields.ticketType": 1, closedAt: 1 },
+	{ partialFilterExpression: { "customFields.type": "support_ticket" } }
+);
+// `purgeDueAt` sólo existe en tickets ya anonimizados con plazo de purga: sparse deja fuera al resto.
+issueSchema.index({ "customFields.purgeDueAt": 1 }, { sparse: true });

@@ -23,6 +23,13 @@ export interface PMPurgeResult {
 	readonly orgRequests: number;
 }
 
+/** Lo mínimo para borrar los hijos de un issue; lo satisface `PMPurgeDeps` y el barrido de retención. */
+export interface IssueChildrenPurgeDeps {
+	readonly comments: CommentsManager | null;
+	readonly attachments: AttachmentsManager | null;
+	readonly logger: ILogger;
+}
+
 /** Ejecuta un paso de purga tolerando fallos (sólo loguea un warning y continúa). */
 async function purgeStep(logger: ILogger, label: string, op: () => Promise<unknown>): Promise<void> {
 	try {
@@ -33,7 +40,7 @@ async function purgeStep(logger: ILogger, label: string, op: () => Promise<unkno
 }
 
 /** Borra los hijos de un issue: comentarios y adjuntos (si sus managers están disponibles). */
-async function purgeIssueChildren(deps: PMPurgeDeps, kernelKey: symbol, issueId: string): Promise<void> {
+export async function purgeIssueChildren(deps: IssueChildrenPurgeDeps, kernelKey: symbol, issueId: string): Promise<void> {
 	const { comments, attachments } = deps;
 	if (comments) await purgeStep(deps.logger, `comentarios de issue ${issueId}`, () => comments.purgeByTarget(kernelKey, "pm-issue", issueId));
 	if (attachments)

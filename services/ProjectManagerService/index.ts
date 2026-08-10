@@ -1,7 +1,16 @@
+import type { Model } from "mongoose";
 import type MongoProvider from "@providers/object/mongo/index.js";
 import { BaseService } from "@services/BaseService.js";
 import { projectSchema, sprintSchema, milestoneSchema, issueSchema } from "./domain/index.js";
-import { ProjectManager, SprintManager, MilestoneManager, IssueManager, OrganizationRequestManager, SupportTicketManager } from "./dao/index.js";
+import {
+	ProjectManager,
+	SprintManager,
+	MilestoneManager,
+	IssueManager,
+	OrganizationRequestManager,
+	SupportTicketManager,
+	TicketRetentionSweeper,
+} from "./dao/index.js";
 import { type IAuthVerifier, type AuthVerifierGetter } from "@common/types/auth-verifier.ts";
 import type { IIdentityManagerService } from "@common/types/identity/IIdentityManagerService.js";
 import { SystemRole } from "@services/core/IdentityManagerService/defaults/systemRoles.js";
@@ -45,6 +54,8 @@ import type { IStorageQuotaService } from "@common/types/storage/IStorageQuotaSe
 import { purgeUserPMData } from "./maintenance.ts";
 import { reconcileTicketBoards, type TicketBoardsConfig } from "./boards.ts";
 import { NotifyManager } from "./notify.ts";
+import type { IIdleOrchestrator } from "@common/types/operations/IIdleOrchestrator.ts";
+import type { IAuditLogService } from "@common/types/security/AuditLog.ts";
 
 /** Mínimo de almacenamiento garantizado para adjuntos de issues/comentarios. */
 
@@ -229,7 +240,9 @@ export default class ProjectManagerService extends BaseService {
 		IssueCommentsEndpoints.init(this, kernelKey);
 		IssueAttachmentsEndpoints.init(this, kernelKey);
 		OrganizationRequestEndpoints.init(this, kernelKey);
-		SupportTicketEndpoints.init(this, kernelKey);
+		SupportTicketEndpoints.init(this, kernelKey, this.getCapability());
+
+		this.#registerTicketRetention(IssueModel, kernelKey);
 
 		await reconcileTicketBoards(
 			{ projects: this.projects, issues: this.issues, logger: this.logger },
@@ -396,8 +409,51 @@ export default class ProjectManagerService extends BaseService {
 		return this.#issueDescriptionDrafts;
 	}
 
+	/**
+	 * Escritor del audit log (dependencia **opcional**). Lo consume la entrada de autoridades, que
+	 * es fail-closed: sin registro disponible responde 503 en vez de recibir el requerimiento.
+	 */
+	getAuditWriter(): IAuditLogService | null {
+		return this.tryGetMyService<IAuditLogService>("AuditLogService") ?? null;
+	}
+
+	/**
+	 * Registra el barrido de retención de tickets en el orquestador de trabajos ociosos, que es
+	 * dependencia opcional: sin él los plazos de `/privacy` § 5 no se ejecutan solos, así que la
+	 * ausencia se loguea como warning y no como debug.
+	 */
+	#registerTicketRetention(issueModel: Model<Issue>, kernelKey: symbol): void {
+		const idle = this.tryGetMyService<IIdleOrchestrator>("OperationsService");
+		if (!idle) {
+			this.logger.logWarn("Retención de tickets de soporte inactiva: OperationsService no está cargado");
+			return;
+		}
+		const priv = (this.config?.private ?? {}) as Record<string, string | undefined>;
+		const sweeper = new TicketRetentionSweeper(
+			issueModel,
+			{ comments: this.#issueCommentsManager, attachments: this.#issueAttachmentsManager, logger: this.logger },
+			// Perezoso: el tablero puede no existir todavía cuando arranca el servicio (lo crea la
+			// reconciliación o el primer ticket), y sin su proyecto el barrido no toca nada.
+			() => this.supportTickets.ticketsProjectId(kernelKey),
+			kernelKey,
+			{ docsPerBatch: Number(priv.ticketRetentionBatchSize) || 50 },
+			this.logger
+		);
+
+		idle.registerIdleJob(this.getCapability(), {
+			id: "support-ticket-retention",
+			description: "Anonimiza y purga tickets de soporte vencidos según su política de retención",
+			intervalMs: (Number(priv.ticketRetentionIntervalSeconds) || 3600) * 1000,
+			batchBudgetMs: Number(priv.ticketRetentionBatchBudgetMs) || 3000,
+			run: (ctx) => sweeper.runBatch(ctx),
+		});
+	}
+
 	@DisableEndpoints()
 	async stop(kernelKey: symbol): Promise<void> {
+		// Antes del `super.stop()`: después ya no está garantizado resolver la dependencia y el
+		// barrido quedaría registrado apuntando a managers muertos.
+		this.tryGetMyService<IIdleOrchestrator>("OperationsService")?.unregisterIdleJobs(this.getCapability());
 		await super.stop(kernelKey);
 		this.#authVerifier = null;
 		this.logger.logOk("ProjectManagerService detenido");

@@ -1,5 +1,6 @@
 import type { Model } from "mongoose";
 import type { Issue, IssuePriority } from "@common/types/project-manager/Issue.ts";
+import type { UpdateLogEntry } from "@common/types/project-manager/UpdateLogEntry.ts";
 import type { Block } from "@common/ADC/types/learning.ts";
 import type { ILogger } from "@interfaces/utils/ILogger.js";
 import { generateId } from "@common/utils/crypto.ts";
@@ -16,8 +17,11 @@ import type { ProjectInternals, CallerMembership } from "./projects.ts";
 import type { Project } from "@common/types/project-manager/Project.ts";
 import type { PMTierResolver } from "../utils/tier-resolver.ts";
 import { docToPlain, findByIdAsPlain, projectOwnerAllowIf, stripImmutableFields } from "./shared.ts";
+import { applyReservedCustomFields } from "../utils/reserved-custom-fields.ts";
 
-const ISSUE_IMMUTABLE_FIELDS = ["id", "projectId", "key", "createdAt", "reporterId", "updateLog", "attachments"] as const;
+// `closedAt` lo sella el servidor en las transiciones de columna: aceptarlo por el body dejaría al
+// cliente adelantar el reloj de retención de un ticket (ver `dao/ticketRetention.ts`).
+const ISSUE_IMMUTABLE_FIELDS = ["id", "projectId", "key", "createdAt", "closedAt", "reporterId", "updateLog", "attachments"] as const;
 /** Límite de bloques en una descripción de issue (consistente con comments). */
 export const ISSUE_DESCRIPTION_MAX_BLOCKS = 200;
 
@@ -50,6 +54,23 @@ function defaultPriority(): IssuePriority {
 	return { urgency: 0, importance: 0, difficulty: null };
 }
 
+/**
+ * Update de mongo a partir del patch: el borrado de `closedAt` viaja en `$unset` porque mongoose
+ * descarta los `undefined` del `$set`. Sin eso, reabrir un issue no limpia su fecha de cierre y el
+ * reloj de retención (ver `dao/ticketRetention.ts`) sigue corriendo sobre un caso vivo.
+ */
+function buildIssueUpdateDoc(patch: Partial<Issue>, diffEntries: UpdateLogEntry[]): Record<string, unknown> {
+	const setOps: Record<string, unknown> = { ...patch };
+	const updateDoc: Record<string, unknown> = {};
+	if ("closedAt" in patch && patch.closedAt === undefined) {
+		delete setOps.closedAt;
+		updateDoc.$unset = { closedAt: 1 };
+	}
+	updateDoc.$set = setOps;
+	if (diffEntries.length > 0) updateDoc.$push = { updateLog: { $each: diffEntries } };
+	return updateDoc;
+}
+
 function isAssignee(issue: Issue | null | undefined, userId: string, groupIds: string[]): boolean {
 	if (!issue) return false;
 	if (issue.assigneeIds?.includes(userId)) return true;
@@ -77,7 +98,9 @@ export class IssueManager {
 			ownerId: project.ownerId,
 			allowIf: projectOwnerAllowIf(project, caller),
 		});
-		return this.#createWithReporter(project, input, reporterId);
+		// `customFields` viene del cliente: las claves que son de la plataforma no se aceptan por acá.
+		const safe = input.customFields ? { ...input, customFields: applyReservedCustomFields(input.customFields) } : input;
+		return this.#createWithReporter(project, safe, reporterId);
 	}
 
 	async createInternal(kernelKey: symbol, project: Project, input: Partial<Issue> & Pick<Issue, "title">, reporterId: string): Promise<Issue> {
@@ -250,14 +273,23 @@ export class IssueManager {
 		}
 
 		const safe: Partial<Issue> = { ...stripImmutableFields(updates, ISSUE_IMMUTABLE_FIELDS), updatedAt: new Date() };
+		// El editor reenvía el blob entero, así que las claves de la plataforma se toman del documento
+		// guardado y no del cliente: si no, cualquier editor podría marcar el issue como ticket de
+		// soporte (y hacer que el barrido de retención lo anonimice y lo borre) o pisar su vencimiento.
+		if (updates.customFields) safe.customFields = applyReservedCustomFields(updates.customFields, current.customFields);
+
+		// `columnKey` no es inmutable y el body de PATCH lo acepta: cerrar un issue desde el editor
+		// (en vez de arrastrarlo en el kanban) tiene que sellar `closedAt` igual que `move()`. Si no,
+		// un ticket cerrado por esta vía queda sin fecha de cierre y su retención no arranca nunca.
+		if (safe.columnKey !== undefined && safe.columnKey !== current.columnKey) {
+			const column = project?.kanbanColumns.find((c) => c.key === safe.columnKey);
+			if (column?.isDone) safe.closedAt = new Date();
+			else if (current.closedAt) safe.closedAt = undefined;
+		}
 
 		const diffEntries = buildDiffEntries(current, safe, actorId || current.reporterId, reason);
 
-		const setOps: Record<string, unknown> = { ...safe };
-		const updateDoc: Record<string, unknown> = { $set: setOps };
-		if (diffEntries.length) updateDoc.$push = { updateLog: { $each: diffEntries } };
-
-		const updated = await this.issueModel.findOneAndUpdate({ id: issueId }, updateDoc, { new: true });
+		const updated = await this.issueModel.findOneAndUpdate({ id: issueId }, buildIssueUpdateDoc(safe, diffEntries), { new: true });
 		if (!updated) throw new ProjectManagerError(404, "ISSUE_NOT_FOUND", `Issue ${issueId} no encontrado`);
 		return normalizeIssueDescription(docToPlain<Issue>(updated)!);
 	}
@@ -312,11 +344,7 @@ export class IssueManager {
 
 		const diff = buildDiffEntries(current, patch, actorId || current.reporterId, reason);
 
-		const updated = await this.issueModel.findOneAndUpdate(
-			{ id: issueId },
-			{ $set: patch, $push: { updateLog: { $each: diff } } },
-			{ new: true }
-		);
+		const updated = await this.issueModel.findOneAndUpdate({ id: issueId }, buildIssueUpdateDoc(patch, diff), { new: true });
 		if (!updated) throw new ProjectManagerError(404, "ISSUE_NOT_FOUND", `Issue ${issueId} no encontrado`);
 		return normalizeIssueDescription(docToPlain<Issue>(updated)!);
 	}
@@ -336,15 +364,17 @@ export class IssueManager {
 	}
 
 	/**
-	 * Reasigna a `fallbackColumnKey` los issues del proyecto cuya `columnKey` no esté
-	 * en `validKeys` (p.ej. tras reconciliar el tablero y eliminar columnas). Devuelve
-	 * cuántos se movieron. Uso interno (sin auth de usuario), protegido por `kernelKey`.
+	 * Reasigna a `fallbackColumnKey` —la columna inicial del tablero— los issues del proyecto cuya
+	 * `columnKey` no esté en `validKeys` (p.ej. tras reconciliar el tablero y eliminar columnas).
+	 * Devuelve cuántos se movieron. Uso interno (sin auth de usuario), protegido por `kernelKey`.
 	 */
 	async reassignOrphanColumnsInternal(kernelKey: symbol, projectId: string, validKeys: string[], fallbackColumnKey: string): Promise<number> {
 		if (kernelKey !== this.#kernelKey) throw new Error("Acceso denegado: kernel key inválida");
 		const res = await this.issueModel.updateMany(
 			{ projectId, columnKey: { $nin: validKeys } },
-			{ $set: { columnKey: fallbackColumnKey, updatedAt: new Date() } }
+			// El destino es una columna abierta: si el issue venía de una columna de cierre que ya no
+			// existe, vuelve a estar abierto y su `closedAt` no puede seguir corriendo la retención.
+			{ $set: { columnKey: fallbackColumnKey, updatedAt: new Date() }, $unset: { closedAt: 1 } }
 		);
 		return res.modifiedCount ?? 0;
 	}

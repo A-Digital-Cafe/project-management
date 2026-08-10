@@ -12,7 +12,16 @@ import type { ProjectManager, IssueManager } from "./dao/index.js";
  */
 
 /** Todas las claves de columna que puede tener un tablero de tickets. */
-type TicketColumnKey = "organizations" | "support" | "security" | "expansion" | "in_progress" | "done" | "duplicate" | "rejected";
+type TicketColumnKey =
+	| "organizations"
+	| "support"
+	| "security"
+	| "authority"
+	| "expansion"
+	| "in_progress"
+	| "done"
+	| "duplicate"
+	| "rejected";
 
 /** Definición de una columna canónica de un tablero de tickets. */
 interface TicketBoardColumn {
@@ -32,13 +41,16 @@ const ORG_REQUESTS_BOARD_COLUMNS = [
 
 /**
  * Tablero canónico de **tickets de soporte** (reclamos, sugerencias, datos,
- * ampliaciones y bug bounty).
+ * ampliaciones, bug bounty y requerimientos de autoridades).
  * El orden de columnas refleja el ciclo de vida; las keys son las que consume
  * `deriveBugBountyStatus` (ver `BUG_BOUNTY_COLUMN_STATUS`) para el log público.
  */
 const TICKETS_BOARD_COLUMNS = [
 	{ key: "support", name: "Soporte", isAuto: true },
 	{ key: "security", name: "Seguridad / Bug Bounty" },
+	// Requerimientos de autoridades. Va acá y no agregada a mano en la UI porque
+	// `reconcileTicketBoards` borra toda columna que no esté en esta constante.
+	{ key: "authority", name: "Autoridades" },
 	{ key: "expansion", name: "Ampliaciones" },
 	{ key: "in_progress", name: "En progreso" },
 	{ key: "done", name: "Resuelto", isDone: true },
@@ -76,6 +88,7 @@ export const TICKET_COLUMN_MAP = {
 	// formulario de tickets: vive en el tablero de tickets, en su propia columna.
 	expansion: "expansion",
 	minor: "support",
+	authority: "authority",
 } as const satisfies Record<SupportTicketType, TicketsBoardColumnKey>;
 
 /** Mapea cada tipo de ticket a la categoría del issue que se crea. */
@@ -86,6 +99,7 @@ export const TICKET_TYPE_CATEGORIES: Record<SupportTicketType, string> = {
 	data: "task",
 	expansion: "task",
 	minor: "task",
+	authority: "task",
 };
 
 /**
@@ -102,6 +116,19 @@ const ORG_REQUESTS_BOARD_FIELDS: ReadonlyArray<CustomFieldDef> = [
 	{ id: "requestIp", name: "IP del solicitante", type: "text" },
 ];
 
+/**
+ * Decisión sobre un requerimiento de autoridad. Es una etiqueta del tablero, no texto libre:
+ * lo que se audita después ("cuántos pedidos se acotaron", "cuántos se rechazaron") no se puede
+ * contar sobre prosa. `narrowed` = se devolvió para acotar el alcance; `referred` = autoridad
+ * extranjera derivada a exhorto/MLAT.
+ */
+export const AUTHORITY_DECISIONS = ["pending", "complied", "partial", "narrowed", "rejected", "referred"] as const;
+export type AuthorityDecision = (typeof AUTHORITY_DECISIONS)[number];
+
+/** Qué pide el requerimiento. Determina el test de proporcionalidad y qué se puede entregar. */
+export const AUTHORITY_REQUEST_TYPES = ["preservation", "subscriber-data", "content", "takedown", "account-block", "other"] as const;
+export type AuthorityRequestType = (typeof AUTHORITY_REQUEST_TYPES)[number];
+
 const TICKETS_BOARD_FIELDS: ReadonlyArray<CustomFieldDef> = [
 	{ id: "reporterEmail", name: "Email del reportante", type: "text" },
 	{ id: "severity", name: "Severidad", type: "label", options: [...BUG_BOUNTY_SEVERITIES] },
@@ -111,8 +138,19 @@ const TICKETS_BOARD_FIELDS: ReadonlyArray<CustomFieldDef> = [
 	{ id: "rewardPreference", name: "Recompensa preferida", type: "label", options: ["plus", "pro"] satisfies RewardPreference[] },
 	{ id: "rewardGranted", name: "Recompensa otorgada", type: "text" },
 	{ id: "publicDisclosure", name: "Divulgación pública", type: "label", options: ["false", "true"] },
+	// Consentimiento de atribución: editable desde el tablero para poder revocarlo a mano cuando
+	// quien reportó perdió su código de revocación (ver `revokeBugBountyCredit`).
+	{ id: "wantsCredit", name: "Acepta crédito público", type: "label", options: ["false", "true"] },
+	{ id: "creditName", name: "Handle de crédito", type: "text" },
 	// Clave del ticket original al mover una tarjeta a la columna "Duplicado".
 	{ id: "duplicateOf", name: "Duplicado de", type: "text" },
+	// ── Requerimientos de autoridades (triage estructurado, no texto libre) ──
+	{ id: "authorityJurisdiction", name: "Jurisdicción", type: "text" },
+	{ id: "authorityBody", name: "Organismo", type: "text" },
+	{ id: "authorityCaseFile", name: "Expediente", type: "text" },
+	{ id: "authorityRequestType", name: "Tipo de requerimiento", type: "label", options: [...AUTHORITY_REQUEST_TYPES] },
+	{ id: "authorityDecision", name: "Decisión", type: "label", options: [...AUTHORITY_DECISIONS] },
+	{ id: "authorityAckDueAt", name: "Acuse comprometido", type: "date" },
 ];
 
 /** Tablero gestionado por el servicio: columnas + campos personalizados canónicos. */

@@ -4,3 +4,4 @@ export { MilestoneManager } from "./milestones.js";
 export { IssueManager } from "./issues.js";
 export { OrganizationRequestManager } from "./organizationRequests.js";
 export { SupportTicketManager } from "./supportTickets.js";
+export { TicketRetentionSweeper } from "./ticketRetention.js";
