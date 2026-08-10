@@ -65,7 +65,9 @@ async function purgeProjectCascade(deps: PMPurgeDeps, kernelKey: symbol, project
  * Purga los datos de un usuario en PM: cascada de sus proyectos PRIVADOS con todo
  * su contenido (issues con adjuntos/comentarios, sprints, milestones) + anonimización
  * de sus tickets de soporte, que viven en un proyecto global y por eso no los
- * alcanza la cascada. Tolera fallos por paso (loguea warnings y continúa).
+ * alcanza la cascada. Los adjuntos de lo que sobrevive anonimizado pierden su
+ * `uploadedBy`: si no, un join por `ownerId` reconstruye al autor que se acaba de
+ * desvincular. Tolera fallos por paso (loguea warnings y continúa).
  */
 export async function purgeUserPMData(deps: PMPurgeDeps, kernelKey: symbol, userId: string): Promise<PMPurgeResult> {
 	let projects = 0;
@@ -84,6 +86,12 @@ export async function purgeUserPMData(deps: PMPurgeDeps, kernelKey: symbol, user
 	await purgeStep(deps.logger, "anonimización de solicitudes de organización", async () => {
 		orgRequests = await deps.organizationRequests.anonymizeRequester(kernelKey, userId);
 	});
+
+	// Los adjuntos de los tickets anonimizados siguen existiendo (el ticket queda como constancia):
+	// se les quita la única columna que todavía apuntaba a la persona.
+	if (deps.attachments) {
+		await purgeStep(deps.logger, "anonimización de adjuntos de PM", () => deps.attachments!.anonymizeByUploader(kernelKey, userId));
+	}
 
 	return { projects, tickets, orgRequests };
 }
