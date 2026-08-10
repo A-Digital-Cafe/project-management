@@ -116,7 +116,8 @@ export default class ProjectManagerService extends BaseService {
 		this.#internalRoles = internalIdentity?.roles ?? null;
 		this.#internalOrgs = internalIdentity?.organizations ?? null;
 		// Límites vía PlanService (único resolver de tiers de la plataforma). Getter
-		// perezoso: es dependencia opcional, y si falta se degrada al tier más alto.
+		// perezoso: es dependencia opcional, y si falta se degrada a `PM_FREE_LIMITS`,
+		// que es lo que promete la cláusula de degradación de los Términos.
 		const tierResolver = createPMTierResolver(createEntitlementsGetter(() => this.tryGetMyService<IPlanService>("PlanService")));
 		this.#registerPlanFeatures();
 
@@ -400,6 +401,27 @@ export default class ProjectManagerService extends BaseService {
 		await super.stop(kernelKey);
 		this.#authVerifier = null;
 		this.logger.logOk("ProjectManagerService detenido");
+	}
+
+	/**
+	 * Export portable de los datos de PM del usuario (derecho de acceso, art. 14
+	 * Ley 25.326 / art. 15 RGPD): los tickets de soporte que abrió (vista acotada,
+	 * sin campos de triage internos). Espejo del contrato de purga: el caller
+	 * (IdentityManager) prueba scope `identity:internal`. Los proyectos e issues se
+	 * consultan/exportan desde la app de proyectos — el JSON lo declara.
+	 */
+	async exportUserData(cap: CapabilityToken, userId: string): Promise<unknown> {
+		assertScope(cap, Scope.IdentityInternal);
+		const lifecycleKey = this.#lifecycleKey;
+		if (!userId || !lifecycleKey) return { supportTickets: [] };
+		const supportTickets = await this.supportTickets.listByReporter(lifecycleKey, userId);
+		return {
+			supportTickets,
+			note: {
+				es: "Tickets de soporte abiertos por la cuenta (hasta 500, los más recientes). Los proyectos, issues y comentarios se consultan desde la app de proyectos.",
+				en: "Support tickets opened by the account (up to 500, most recent). Projects, issues and comments can be browsed from the projects app.",
+			},
+		};
 	}
 
 	/**

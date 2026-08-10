@@ -99,6 +99,26 @@ export class IssueManager {
 		return docs.map((d) => normalizeIssueDescription(docToPlain<Issue>(d)!));
 	}
 
+	/**
+	 * Tickets de soporte de un tipo que siguen en una columna abierta. Uso interno:
+	 * lo consumen las colas de moderación de otros módulos vía `SupportTicketManager`.
+	 */
+	async listOpenSupportTicketsInternal(
+		kernelKey: symbol,
+		projectId: string,
+		type: string,
+		openColumnKeys: string[],
+		limit = 100
+	): Promise<Issue[]> {
+		if (kernelKey !== this.#kernelKey) throw new Error("Acceso denegado: kernel key inválida");
+		if (openColumnKeys.length === 0) return [];
+		const docs = await this.issueModel
+			.find({ projectId, "customFields.type": "support_ticket", "customFields.ticketType": type, columnKey: { $in: openColumnKeys } })
+			.sort({ createdAt: -1 })
+			.limit(limit);
+		return docs.map((d) => normalizeIssueDescription(docToPlain<Issue>(d)!));
+	}
+
 	async #createWithReporter(project: Project, input: Partial<Issue> & Pick<Issue, "title">, reporterId: string): Promise<Issue> {
 		const { maxIssuesPerProject } = await this.tierResolver.projectLimits(project);
 		const count = await this.issueModel.countDocuments({ projectId: project.id });

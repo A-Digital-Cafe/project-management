@@ -12,7 +12,7 @@ import type { ProjectManager, IssueManager } from "./dao/index.js";
  */
 
 /** Todas las claves de columna que puede tener un tablero de tickets. */
-type TicketColumnKey = "organizations" | "support" | "security" | "expansion" | "in_progress" | "done" | "rejected";
+type TicketColumnKey = "organizations" | "support" | "security" | "expansion" | "in_progress" | "done" | "duplicate" | "rejected";
 
 /** Definición de una columna canónica de un tablero de tickets. */
 interface TicketBoardColumn {
@@ -42,6 +42,9 @@ const TICKETS_BOARD_COLUMNS = [
 	{ key: "expansion", name: "Ampliaciones" },
 	{ key: "in_progress", name: "En progreso" },
 	{ key: "done", name: "Resuelto", isDone: true },
+	// Cerrar un reporte válido que llegó segundo no es descartarlo: el log público
+	// lo publica como "Duplicado de <ticket>" en vez de confundirlo con spam.
+	{ key: "duplicate", name: "Duplicado", isDone: true },
 	{ key: "rejected", name: "Descartado", isDone: true },
 ] as const satisfies ReadonlyArray<TicketBoardColumn>;
 
@@ -72,6 +75,7 @@ export const TICKET_COLUMN_MAP = {
 	// La ampliación es una solicitud de una organización, pero entra por el
 	// formulario de tickets: vive en el tablero de tickets, en su propia columna.
 	expansion: "expansion",
+	minor: "support",
 } as const satisfies Record<SupportTicketType, TicketsBoardColumnKey>;
 
 /** Mapea cada tipo de ticket a la categoría del issue que se crea. */
@@ -81,6 +85,7 @@ export const TICKET_TYPE_CATEGORIES: Record<SupportTicketType, string> = {
 	security: "security",
 	data: "task",
 	expansion: "task",
+	minor: "task",
 };
 
 /**
@@ -106,6 +111,8 @@ const TICKETS_BOARD_FIELDS: ReadonlyArray<CustomFieldDef> = [
 	{ id: "rewardPreference", name: "Recompensa preferida", type: "label", options: ["plus", "pro"] satisfies RewardPreference[] },
 	{ id: "rewardGranted", name: "Recompensa otorgada", type: "text" },
 	{ id: "publicDisclosure", name: "Divulgación pública", type: "label", options: ["false", "true"] },
+	// Clave del ticket original al mover una tarjeta a la columna "Duplicado".
+	{ id: "duplicateOf", name: "Duplicado de", type: "text" },
 ];
 
 /** Tablero gestionado por el servicio: columnas + campos personalizados canónicos. */

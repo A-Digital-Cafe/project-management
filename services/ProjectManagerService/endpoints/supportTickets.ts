@@ -1,12 +1,14 @@
 import { RegisterEndpoint, type EndpointCtx } from "@services/core/EndpointManagerService/index.js";
 import { ProjectManagerError } from "@common/types/custom-errors/ProjectManagerError.ts";
 import { AuthorizationError } from "@common/types/custom-errors/AuthorizationError.ts";
+import { P } from "@common/types/Permissions.ts";
 import type { CreateSupportTicketInput, SupportTicketType } from "@common/types/project-manager/SupportTicket.ts";
 import {
 	SUPPORT_TICKET_VALIDATORS,
 	validateStringField,
 	TICKET_TYPE_LABELS,
 	BUG_BOUNTY_FIELD_CONSTRAINTS,
+	ANONYMOUS_TICKET_TYPES,
 } from "@common/types/project-manager/SupportTicket.ts";
 import type ProjectManagerService from "../index.js";
 import * as TS from "./schemas/supportTickets.js";
@@ -115,19 +117,16 @@ export class SupportTicketEndpoints {
 	}
 
 	/**
-	 * Crea un ticket de soporte (solo usuarios autenticados)
+	 * Crea un ticket de soporte.
 	 *
-	 * Registra la información del usuario reportante:
-	 * - userId: ID del usuario autenticado
-	 * - email: Email del usuario autenticado
+	 * Requiere sesión salvo los tipos de `ANONYMOUS_TICKET_TYPES`, que los documentos legales
+	 * ofrecen a **cualquier persona**, tenga cuenta o no (reportar contenido ajeno, responsabilidad
+	 * parental sobre un menor). El rate limit por IP aplica a ambos casos.
+	 *
+	 * Registra la información del reportante:
+	 * - userId: ID del usuario autenticado (null en tickets anónimos)
+	 * - email: Email del usuario autenticado (el de contacto viaja en el body)
 	 * - ip: IP del cliente para análisis de patrón
-	 *
-	 * Rate limit: 10 tickets máximo cada 3 días por IP
-	 *
-	 * @param {string} type - Tipo de ticket: "complaint", "suggestion", o "security"
-	 * @param {string} title - Título del ticket (5-200 caracteres)
-	 * @param {string} description - Descripción detallada (10-5000 caracteres)
-	 * @param {string} email - Email de contacto (validado con RFC regex)
 	 *
 	 * @returns {SupportTicketIssueResponse} ID y clave del ticket creado
 	 */
@@ -139,17 +138,19 @@ export class SupportTicketEndpoints {
 			rateLimit: SUPPORT_TICKET_RATE_LIMIT,
 			tag: "ProjectManagerService/SupportTickets",
 			summary: "Crea un ticket de soporte",
-			description: "Requiere usuario autenticado. Rate limit: 5 tickets por IP cada 3 días. El `email`, `title` y `description` se validan en servidor.",
+			description:
+				"Requiere usuario autenticado, salvo los tickets de tipo `data` (reporte de contenido/datos de terceros) y `minor` (solicitud de quien ejerce la responsabilidad parental), que se aceptan sin sesión. Rate limit: 5 tickets por IP cada 3 días. El `email`, `title` y `description` se validan en servidor.",
 			schema: { body: TS.CreateSupportTicketBody, response: { 201: TicketIssueResponse } },
 		},
 	})
 	static async create(ctx: EndpointCtx<never, CreateSupportTicketInput>) {
-		if (!ctx.user?.id) throw new AuthorizationError("Debes iniciar sesión para crear un ticket de soporte", "NO_TOKEN");
 		const input = normalizeInput(ctx.data);
+		if (!ANONYMOUS_TICKET_TYPES.has(input.type) && !ctx.user?.id)
+			throw new AuthorizationError("Debes iniciar sesión para crear un ticket de soporte", "NO_TOKEN");
 
 		return SupportTicketEndpoints.service.supportTickets.create(SupportTicketEndpoints.kernelKey, input, {
-			userId: ctx.user.id,
-			email: ctx.user.email,
+			userId: ctx.user?.id ?? null,
+			email: ctx.user?.email,
 		});
 	}
 
@@ -177,5 +178,30 @@ export class SupportTicketEndpoints {
 	static async publicBugBounty(_ctx: EndpointCtx) {
 		const entries = await SupportTicketEndpoints.service.supportTickets.listPublicBugBounty(SupportTicketEndpoints.kernelKey);
 		return { data: entries };
+	}
+
+	/**
+	 * Cola de reportes de contenido (`data`) abiertos, que consume el panel de moderación de Drive.
+	 * Sin esto había que ir al tablero, copiar el enlace a mano y volver: una cola que se opera a
+	 * mano es una cola que se atiende tarde.
+	 *
+	 * Va gateado por `drive:moderate` y no por un permiso del PM a propósito: quien
+	 * modera contenido necesita ver estos reportes, y no tiene por qué poder leer el
+	 * resto de los tickets ni el tablero entero.
+	 */
+	@RegisterEndpoint({
+		method: "GET",
+		url: "/api/pm/support-tickets/moderation-queue",
+		permissions: [P.DRIVE.MODERATE.EXECUTE],
+		options: {
+			tag: "ProjectManagerService/SupportTickets",
+			summary: "Reportes de contenido abiertos, para la cola de moderación",
+			description: "Sólo tickets de tipo `data` en columnas no resueltas. No incluye el email de quien reportó.",
+			schema: { response: { 200: TS.ModerationQueueResponse } },
+		},
+	})
+	static async moderationQueue(_ctx: EndpointCtx) {
+		const data = await SupportTicketEndpoints.service.supportTickets.listOpenByType(SupportTicketEndpoints.kernelKey, "data");
+		return { data };
 	}
 }

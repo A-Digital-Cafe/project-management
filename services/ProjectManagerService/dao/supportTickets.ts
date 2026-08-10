@@ -2,13 +2,15 @@ import type { Model } from "mongoose";
 import type { Block } from "@common/ADC/types/learning.ts";
 import type { Issue } from "@common/types/project-manager/Issue.ts";
 import { ProjectManagerError } from "@common/types/custom-errors/ProjectManagerError.ts";
-import type {
-	CreateSupportTicketInput,
-	SupportTicketIssueResponse,
-	SupportTicketCaller,
-	SupportTicketConfig,
+import {
+	type CreateSupportTicketInput,
+	type SupportTicketIssueResponse,
+	type SupportTicketCaller,
+	type SupportTicketConfig,
+	TICKET_TYPE_LABELS,
+	type OpenTicketEntry,
+	type SupportTicketType,
 } from "@common/types/project-manager/SupportTicket.ts";
-import { TICKET_TYPE_LABELS } from "@common/types/project-manager/SupportTicket.ts";
 import { TICKET_COLUMN_MAP, TICKET_TYPE_CATEGORIES, ensureTicketBoard, type CommonTicketColumnKey } from "../boards.ts";
 import type { ILogger } from "@interfaces/utils/ILogger.js";
 import { sha256Hex } from "@common/utils/crypto.ts";
@@ -55,7 +57,7 @@ export class SupportTicketManager {
 				columnKey,
 				customFields: supportTicketCustomFields(input, caller),
 			},
-			caller.userId
+			caller.userId ?? ""
 		);
 
 		return {
@@ -63,6 +65,29 @@ export class SupportTicketManager {
 			ticketKey: issue.key,
 			message: `Ticket creado. El ID es ${issue.key}.`,
 		};
+	}
+
+	/**
+	 * Tickets abiertos (columna sin `isDone`) de un tipo, para las colas de moderación de otros
+	 * módulos. Devuelve lo mínimo para triar —clave, título, fecha y descripción en texto— y **no**
+	 * el email de quien reportó: la cola sirve para actuar sobre el contenido, no para saber quién
+	 * denunció.
+	 */
+	async listOpenByType(kernelKey: symbol, type: SupportTicketType, limit = 100): Promise<OpenTicketEntry[]> {
+		const slug = this.#projectSlug();
+		const project = await this.projects.getInternals(kernelKey).fetchGlobalProjectBySlug(slug);
+		if (!project) return [];
+
+		const openColumns = project.kanbanColumns.filter((c) => !c.isDone).map((c) => c.key);
+		const issues = await this.issues.listOpenSupportTicketsInternal(kernelKey, project.id, type, openColumns, limit);
+
+		return issues.map((issue) => ({
+			ticketKey: issue.key,
+			title: issue.title,
+			createdAt: issue.createdAt.toISOString(),
+			columnKey: issue.columnKey,
+			description: plainTextFromBlocks(issue.description),
+		}));
 	}
 
 	/**
@@ -80,7 +105,7 @@ export class SupportTicketManager {
 		const issues = await this.issues.listBugBountyInternal(kernelKey, project.id);
 
 		return issues.map((issue) => {
-			const cf = (issue.customFields ?? {});
+			const cf = issue.customFields ?? {};
 			// El estado se deriva de la columna actual del ticket en el tablero del PM.
 			const status = deriveBugBountyStatus(issue.columnKey, columnName.get(issue.columnKey));
 			const disclosed = cf.publicDisclosure === "true";
@@ -90,17 +115,49 @@ export class SupportTicketManager {
 			// El hash, en cambio, no revela nada y es la prueba de no-manipulación.
 			const published = status === "resolved" && disclosed;
 			const reportedAt = typeof cf.reportedAt === "string" ? cf.reportedAt : issue.createdAt.toISOString();
+			// Sólo se publica junto al estado `duplicate`: fuera de esa columna el campo
+			// puede haber quedado de un triage anterior y afirmaría algo que ya no es.
+			const duplicateOf = status === "duplicate" && typeof cf.duplicateOf === "string" ? cf.duplicateOf.trim() || null : null;
 
 			return {
 				ticketKey: issue.key,
 				reportedAt,
 				descriptionHash: typeof cf.descriptionHash === "string" ? cf.descriptionHash : "",
 				status,
+				duplicateOf,
 				severity: (cf.severity as BugBountyPublicEntry["severity"]) ?? null,
 				creditHandle: disclosed && wantsCredit && typeof cf.creditName === "string" ? cf.creditName : null,
 				description: published && typeof cf.originalDescription === "string" ? cf.originalDescription : null,
 			};
 		});
+	}
+
+	/**
+	 * Tickets abiertos por un usuario para el export de sus datos: clave, tipo, título, estado,
+	 * fechas y descripción en texto, sin campos de triage internos. Protegido por `kernelKey`.
+	 */
+	async listByReporter(kernelKey: symbol, userId: string, limit = 500): Promise<Array<Record<string, unknown>>> {
+		if (kernelKey !== this.kernelKey) throw new Error("Acceso denegado: kernel key inválida");
+		if (!userId) return [];
+
+		const docs = await this.issueModel
+			.find(
+				{ "customFields.type": "support_ticket", "customFields.reportedByUserId": userId },
+				{ key: 1, title: 1, columnKey: 1, createdAt: 1, updatedAt: 1, description: 1, "customFields.ticketType": 1 }
+			)
+			.sort({ createdAt: -1 })
+			.limit(limit)
+			.lean<Array<Pick<Issue, "key" | "title" | "columnKey" | "createdAt" | "updatedAt" | "description"> & { customFields?: Record<string, unknown> }>>();
+
+		return docs.map((doc) => ({
+			ticketKey: doc.key,
+			type: typeof doc.customFields?.ticketType === "string" ? doc.customFields.ticketType : null,
+			title: doc.title,
+			columnKey: doc.columnKey,
+			description: plainTextFromBlocks(doc.description),
+			createdAt: doc.createdAt,
+			updatedAt: doc.updatedAt,
+		}));
 	}
 
 	/**
@@ -136,10 +193,7 @@ export class SupportTicketManager {
 	}
 
 	#projectSlug(): string {
-		const slug =
-			this.config.supportTicketsProjectId?.trim() ||
-			this.config.orgManagementProjectId?.trim() ||
-			"";
+		const slug = this.config.supportTicketsProjectId?.trim() || this.config.orgManagementProjectId?.trim() || "";
 
 		if (!slug) {
 			throw new ProjectManagerError(
@@ -175,6 +229,18 @@ function addBusinessDays(from: Date, n: number): Date {
 	return d;
 }
 
+/**
+ * Texto plano de una descripción por bloques, para la cola de moderación: sólo los bloques con
+ * texto, que es lo que hace falta para leer el motivo y el enlace reportado.
+ */
+function plainTextFromBlocks(description: unknown): string {
+	if (!Array.isArray(description)) return "";
+	return (description as Block[])
+		.map((block) => ("text" in block && typeof block.text === "string" ? block.text : ""))
+		.filter(Boolean)
+		.join("\n");
+}
+
 function supportTicketCustomFields(input: CreateSupportTicketInput, caller: SupportTicketCaller): Record<string, CustomFieldValue> {
 	const base: Record<string, CustomFieldValue> = {
 		type: "support_ticket",
@@ -207,9 +273,11 @@ function supportTicketCustomFields(input: CreateSupportTicketInput, caller: Supp
 			rewardGranted: null,
 			// Crédito / disclosure.
 			wantsCredit: input.wantsCredit === true ? "true" : "false",
-			creditName: input.wantsCredit ? input.creditName ?? null : null,
+			creditName: input.wantsCredit ? (input.creditName ?? null) : null,
 			publicDisclosure: "false",
 			addedToAcknowledgments: "false",
+			// Se completa sólo si el triage lo cierra como duplicado (columna "Duplicado").
+			duplicateOf: null,
 		};
 	}
 
@@ -227,7 +295,7 @@ function supportTicketBlocks(input: CreateSupportTicketInput, caller: SupportTic
 
 	blocks.push(
 		{ type: "heading", level: 3, text: "Información del reporte" },
-		{ type: "paragraph", text: `${REPORTER_LABELS.reporterUser}: ${caller.userId}` },
+		{ type: "paragraph", text: `${REPORTER_LABELS.reporterUser}: ${caller.userId ?? "Anónimo (sin sesión)"}` },
 		{ type: "paragraph", text: `${REPORTER_LABELS.sessionEmail}: ${caller.email || "Anónimo"}` }
 	);
 
@@ -244,11 +312,15 @@ function supportTicketBlocks(input: CreateSupportTicketInput, caller: SupportTic
 			{ type: "paragraph", text: "3) Fix + tests + versión parche; mover la tarjeta a la columna de estado correspondiente." },
 			{
 				type: "paragraph",
+				text: 'Si el hallazgo ya estaba reportado: mover a la columna "Duplicado" (NO a "Descartado") y escribir la clave del ticket original en customFields.duplicateOf (ej. STATUS-42). El log público muestra "Duplicado de STATUS-42" — que es válido pero segundo — en vez de confundirlo con un reporte inválido. En duplicados se reconoce al primero.',
+			},
+			{
+				type: "paragraph",
 				text: "4) Recompensa: otorgar upgrade temporal de tier (plus/pro) según severidad y preferencia, vía endpoint de grants de Identity (reportedByUserId). Registrar en customFields.rewardGranted.",
 			},
 			{
 				type: "paragraph",
-				text: "5) Disclosure: recién con el ticket resuelto y el OK del reporter, marcar customFields.publicDisclosure=\"true\" para publicar la descripción en el log de transparencia (/status/bounty, debe coincidir con descriptionHash). El handle sale sólo si además wantsCredit=\"true\"; registrar addedToAcknowledgments.",
+				text: '5) Disclosure: recién con el ticket resuelto y el OK del reporter, marcar customFields.publicDisclosure="true" para publicar la descripción en el log de transparencia (/status/bounty, debe coincidir con descriptionHash). El handle sale sólo si además wantsCredit="true"; registrar addedToAcknowledgments.',
 			}
 		);
 	}

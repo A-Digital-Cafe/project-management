@@ -8,3 +8,4 @@ Gestión de proyectos tipo Jira: proyectos, sprints, milestones, issues, labels,
 - Update log append-only, issue keys autogenerados (`PROJ-123`)
 - Kanban con columnas configurables y WIP limits (modo foco)
 - Solicitudes de organización vía issue en proyecto configurado
+- Baja/export de cuenta: `purgeUserPrivateData` y `exportUserData` (tickets de soporte propios), handshake `identity:internal`

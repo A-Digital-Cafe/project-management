@@ -14,3 +14,15 @@ export const CreateSupportTicketBody = Type.Object({
 		Type.Union([Type.Literal("plus"), Type.Literal("pro")], { description: "Preferencia de recompensa del reporter" })
 	),
 });
+
+export const ModerationQueueResponse = Type.Object({
+	data: Type.Array(
+		Type.Object({
+			ticketKey: Type.String(),
+			title: Type.String(),
+			createdAt: Type.String(),
+			columnKey: Type.String(),
+			description: Type.String({ description: "Cuerpo en texto plano; de acá sale el enlace reportado" }),
+		})
+	),
+});
