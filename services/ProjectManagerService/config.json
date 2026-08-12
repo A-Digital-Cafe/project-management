@@ -1,13 +1,7 @@
 {
 	"name": "ProjectManagerService",
 	"uiName": "Proyectos",
-	"privileges": [
-		"identity:internal",
-		"storage:register",
-		"plans:register",
-		"idle:register",
-		"audit:write"
-	],
+	"privileges": ["identity:internal", "storage:register", "plans:register", "idle:register", "audit:write"],
 	"version": "1.0.0",
 	"failOnError": false,
 	"providers": [
@@ -19,7 +13,7 @@
 				"host": "${MONGO_HOST:-localhost:27017}",
 				"user": "${MONGO_USER:-admin}",
 				"password": "${MONGO_PASSWORD:-password}",
-				"options": "${MONGO_OPTIONS:-authSource=admin}",
+				"options": "${MONGO_OPTIONS:-replicaSet=rs0&authSource=admin}",
 				"db": "project-management",
 				"maxRetries": 5,
 				"retryDelay": 5000
@@ -30,10 +24,11 @@
 			"version": "latest",
 			"language": "typescript",
 			"custom": {
-				"endpoint": "${S3_ENDPOINT:-http://localhost:9000}",
-				"region": "${S3_REGION:-us-east-1}",
-				"accessKey": "${S3_ACCESS_KEY:-adc-platform}",
-				"secretKey": "${S3_SECRET_KEY:-adc-platform-dev}",
+				"endpoint": "${S3_ENDPOINT}",
+				"publicEndpoint": "${S3_PUBLIC_ENDPOINT:-}",
+				"region": "${S3_REGION:-sa-central-1}",
+				"accessKey": "${S3_ACCESS_KEY}",
+				"secretKey": "${S3_SECRET_KEY}",
 				"forcePathStyle": true,
 				"defaultBucket": "${PM_S3_BUCKET:-adc-pm}",
 				"presignTtl": 600
