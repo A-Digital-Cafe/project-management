@@ -2,11 +2,10 @@
  * Features de plan que Project Manager declara en `PlanService` al arrancar
  * (`registerFeatures`, scope `plans:register`).
  *
- * ⚠️ Los valores de los tiers pagos son **defaults de DESARROLLO**, no la oferta
- * comercial. La oferta real se define fuera del código y se publica sobre
- * `PlanService` (`PUT /api/plans/admin/plans`), que congela los planes para que
- * estos defaults no los pisen. El único valor "real" acá es el piso
- * `free`/`default`, que además es el fallback sin motor de planes.
+ * ⚠️ Los tiers pagos son **defaults de DESARROLLO**: la oferta real se publica
+ * sobre `PlanService` (`PUT /api/plans/admin/plans`), que congela los planes para
+ * que estos defaults no los pisen. El único valor real acá es el piso `free`/`default`,
+ * que además es el fallback sin motor de planes.
  */
 
 import type { FeatureDef, ModulePlanDefaults, PlanFeatureValue } from "@common/types/plans/index.ts";
@@ -29,21 +28,36 @@ function features(maxProjects: number, perProject: PMProjectLimits, opts: { pool
 	};
 }
 
+const DEV_VIP: PMProjectLimits = { maxIssuesPerProject: 60, maxSprintsPerProject: 4, maxMilestonesPerProject: 4 };
 const DEV_PRO: PMProjectLimits = { maxIssuesPerProject: 200, maxSprintsPerProject: 10, maxMilestonesPerProject: 10 };
 const DEV_PLUS: PMProjectLimits = { maxIssuesPerProject: 2000, maxSprintsPerProject: 100, maxMilestonesPerProject: 100 };
+
+/** Proyectos del `pro` personal: el pool compartido del eje org se deriva de acá. */
+const PRO_PROJECTS = 10;
+
+/**
+ * Cuántos planes `pro` equivale el pool de cada tier de organización. Es la misma
+ * equivalencia con la que se fijó el precio por asiento, así que se deriva en vez
+ * de escribirse a mano: si `pro` cambia, el pool acompaña.
+ */
+const ORG_PRO_EQUIVALENT = { team: 6, teamExpanded: 8, enterprise: 20 };
 
 export const PM_PLAN_DEFAULTS: ModulePlanDefaults = {
 	user: {
 		free: features(PM_FREE_LIMITS.maxPrivateProjectsPerUser, PM_FREE_LIMITS, { pooled: false }),
-		pro: features(10, DEV_PRO, { pooled: false }),
+		// `vip` se otorga por comunidad: duplica los topes de `free` y queda lejos de `pro`.
+		vip: features(4, DEV_VIP, { pooled: false }),
+		pro: features(PRO_PROJECTS, DEV_PRO, { pooled: false }),
 		plus: features(50, DEV_PLUS, { pooled: false }),
 	},
 	org: {
 		default: features(PM_ORG_BASE_LIMITS.maxProjectsPerOrg, PM_ORG_BASE_LIMITS, { pooled: true }),
-		team: features(30, DEV_PRO, { pooled: true }),
-		enterprise: features(100, DEV_PLUS, { pooled: true }),
+		// Sólo el POOL de proyectos se multiplica; los topes POR proyecto (incidencias,
+		// sprints) son calidad por persona y se quedan en los del tier equivalente.
+		team: features(PRO_PROJECTS * ORG_PRO_EQUIVALENT.team, DEV_PRO, { pooled: true }),
+		enterprise: features(PRO_PROJECTS * ORG_PRO_EQUIVALENT.enterprise, DEV_PLUS, { pooled: true }),
 	},
 	expansion: {
-		team: { "pm.maxProjects": { base: 40, perSeat: 0 } },
+		team: { "pm.maxProjects": { base: PRO_PROJECTS * ORG_PRO_EQUIVALENT.teamExpanded, perSeat: 0 } },
 	},
 };
