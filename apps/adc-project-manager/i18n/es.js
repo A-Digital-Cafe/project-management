@@ -8,7 +8,7 @@ export default {
 		featuresAria: "Qué podés hacer",
 		howAria: "Cómo empezar",
 		howTitle: "Cómo empezar",
-		signInHint: "Iniciá sesión desde el menú superior para acceder a tus proyectos.",
+		signIn: "Iniciar sesión",
 		features: {
 			projects: {
 				title: "Proyectos a tu medida",

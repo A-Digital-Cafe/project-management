@@ -8,7 +8,7 @@ export default {
 		featuresAria: "What you can do",
 		howAria: "How to get started",
 		howTitle: "How to get started",
-		signInHint: "Sign in from the top menu to access your projects.",
+		signIn: "Sign in",
 		features: {
 			projects: {
 				title: "Projects your way",

@@ -1,5 +1,6 @@
 import "@ui-library/utils/react-jsx";
 import { useTranslation } from "@ui-library/utils/i18n-react";
+import { goToLogin } from "@ui-library/utils/session";
 
 /**
  * Landing mostrada cuando el visitante aún no tiene acceso al panel.
@@ -33,9 +34,9 @@ export function LandingView() {
 				))}
 			</section>
 
-			<section className="mt-12" aria-label={t("landing.howAria")}>
+			<section className="mt-12 flex flex-col items-center" aria-label={t("landing.howAria")}>
 				<h2 className="text-2xl text-center font-heading font-bold text-text mb-4">{t("landing.howTitle")}</h2>
-				<p className="text-center mt-6">{t("landing.signInHint")}</p>
+				<adc-button variant="primary" label={t("landing.signIn")} onClick={() => goToLogin()} />
 			</section>
 		</div>
 	);
