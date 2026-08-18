@@ -1,5 +1,5 @@
 import type { ClientUser, User, Role } from "@common/types/identity/index.ts";
-import { SystemRole } from "@services/core/IdentityManagerService/defaults/systemRoles.ts";
+import { SystemRole } from "@common/types/identity/systemRoles.ts";
 
 type AnyUser = ClientUser | User | null | undefined;
 interface RoleReader {

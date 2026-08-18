@@ -13,7 +13,7 @@ import {
 } from "./dao/index.js";
 import { type IAuthVerifier, type AuthVerifierGetter } from "@common/types/auth-verifier.ts";
 import type { IIdentityManagerService } from "@common/types/identity/IIdentityManagerService.js";
-import { SystemRole } from "@services/core/IdentityManagerService/defaults/systemRoles.js";
+import { SystemRole } from "@common/types/identity/systemRoles.js";
 import type { EndpointCtx } from "@services/core/EndpointManagerService/index.js";
 import { EnableEndpoints, DisableEndpoints } from "@services/core/EndpointManagerService/index.js";
 import { ProjectEndpoints } from "./endpoints/projects.js";
