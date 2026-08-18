@@ -120,29 +120,26 @@ export function ColumnsSection({ project, canEdit, onSaved }: Readonly<Props>) {
 				))}
 			</ul>
 			<div className="pt-3 border-t border-border">
-				<label
-					htmlFor={requireCommentInputId}
-					aria-label={requireCommentLabel}
-					className="flex items-start gap-2 text-sm cursor-pointer"
-				>
-					<input
-						id={requireCommentInputId}
-						type="checkbox"
+				{/* El texto va en un <label> HERMANO y no envolviendo al switch: adc-toggle ya trae su propio
+				    <label>, y anidarlos reenvía el click dos veces al mismo input (se activa y se desactiva). */}
+				<div className="flex items-start gap-2 text-sm">
+					<adc-toggle
+						inputId={requireCommentInputId}
 						checked={requireComment}
-						onChange={(e) => setRequireComment(e.target.checked)}
 						disabled={!canEdit}
-						aria-describedby="require-comment-on-final-transition-hint"
-						className="mt-1"
+						aria-label={requireCommentLabel}
+						describedBy="require-comment-on-final-transition-hint"
+						onadcChange={(e: CustomEvent<boolean>) => setRequireComment(e.detail)}
 					/>
-					<span>
+					<label htmlFor={requireCommentInputId} className="cursor-pointer">
 						<span id="require-comment-on-final-transition-label" className="font-medium block">
 							{requireCommentLabel}
 						</span>
 						<span id="require-comment-on-final-transition-hint" className="text-xs text-muted">
 							{requireCommentHint}
 						</span>
-					</span>
-				</label>
+					</label>
+				</div>
 			</div>
 			{canEdit && (
 				<div className="flex gap-2">

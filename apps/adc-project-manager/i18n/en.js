@@ -199,6 +199,7 @@ export default {
 		visibility_private: "Private",
 		visibility_org: "Organization",
 		visibility_public: "Public",
+		visibilityLocked: "Visibility is set when the project is created and cannot be changed here.",
 		memberUsers: "Users",
 		memberGroups: "Groups",
 		searchUsers: "Search users...",
