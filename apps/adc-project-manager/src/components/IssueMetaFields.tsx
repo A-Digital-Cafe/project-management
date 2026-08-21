@@ -25,7 +25,7 @@ interface Props {
 export function IssueMetaFields({ form, onChange, project, sprints, milestones, issue, projectIssues, canEdit, isNew }: Readonly<Props>) {
 	const { t } = useTranslation({ namespace: "adc-project-manager" });
 	return (
-		<aside className="space-y-3 lg:border-l lg:border-border lg:pl-4 min-w-0">
+		<aside className="space-y-3 lg:border-l lg:border-divider lg:pl-4 min-w-0">
 			<div className="grid grid-cols-3 gap-2">
 				<div>
 					<label className="block text-sm font-medium mb-1 text-text">{t("issues.urgency")}</label>

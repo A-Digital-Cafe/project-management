@@ -6,12 +6,13 @@ import { type AuthVerifierGetter, PermissionChecker } from "@common/types/auth-v
 import { PMScopes, PM_RESOURCE_NAME } from "@common/types/project-manager/permissions.ts";
 import { CRUDXAction } from "@common/types/Actions.ts";
 import { ProjectManagerError } from "@common/types/custom-errors/ProjectManagerError.ts";
-import type { CallerMembership, ProjectInternals } from "./projects.ts";
+import type { PMCtx, ProjectInternals } from "./projects.ts";
 import type { Project } from "@common/types/project-manager/Project.ts";
 import type { PMTierResolver } from "../utils/tier-resolver.ts";
 import {
 	docToPlain,
 	fetchEntityWithProject,
+	assertProjectVisible,
 	projectMemberAllowIf,
 	projectOwnerAllowIf,
 	requireProject,
@@ -37,20 +38,21 @@ export class SprintManager {
 	}
 
 	/** `allowIf` compartido: owner del proyecto o miembro explícito. */
-	#projectMemberAllowIf(project: Project | null, caller?: CallerMembership) {
-		return projectMemberAllowIf(project, caller);
+	#projectMemberAllowIf(project: Project | null, ctx: PMCtx) {
+		return projectMemberAllowIf(project, ctx);
 	}
 
 	async #requireProject(projectId: string): Promise<Project> {
 		return requireProject(this.projectInternals, projectId);
 	}
 
-	async create(projectId: string, input: Partial<Sprint> & Pick<Sprint, "name">, token?: string, caller?: CallerMembership): Promise<Sprint> {
+	async create(projectId: string, input: Partial<Sprint> & Pick<Sprint, "name">, ctx: PMCtx, token?: string): Promise<Sprint> {
 		const project = await this.#requireProject(projectId);
 		await this.#permissionChecker.requirePermission(token, CRUDXAction.WRITE, PMScopes.SPRINTS, {
 			ownerId: project.ownerId,
-			allowIf: projectOwnerAllowIf(project, caller),
+			allowIf: projectOwnerAllowIf(project, ctx),
 		});
+		assertProjectVisible(project, ctx);
 
 		const { maxSprintsPerProject } = await this.tierResolver.projectLimits(project);
 		const count = await this.sprintModel.countDocuments({ projectId });
@@ -73,12 +75,13 @@ export class SprintManager {
 		return sprint;
 	}
 
-	async list(projectId: string, token?: string, caller?: CallerMembership): Promise<Sprint[]> {
+	async list(projectId: string, ctx: PMCtx, token?: string): Promise<Sprint[]> {
 		const project = await this.#requireProject(projectId);
 		await this.#permissionChecker.requirePermission(token, CRUDXAction.READ, PMScopes.SPRINTS, {
 			ownerId: project.ownerId,
-			allowIf: this.#projectMemberAllowIf(project, caller),
+			allowIf: this.#projectMemberAllowIf(project, ctx),
 		});
+		assertProjectVisible(project, ctx);
 		const docs = await this.sprintModel.find({ projectId });
 		return docs.map((d) => docToPlain<Sprint>(d)!);
 	}
@@ -88,48 +91,52 @@ export class SprintManager {
 		return { sprint: entity, project };
 	}
 
-	async get(sprintId: string, token?: string, caller?: CallerMembership): Promise<Sprint | null> {
+	async get(sprintId: string, ctx: PMCtx, token?: string): Promise<Sprint | null> {
 		const { sprint, project } = await this.#fetchSprintAndProject(sprintId);
 		await this.#permissionChecker.requirePermission(token, CRUDXAction.READ, PMScopes.SPRINTS, {
 			ownerId: project?.ownerId,
-			allowIf: this.#projectMemberAllowIf(project, caller),
+			allowIf: this.#projectMemberAllowIf(project, ctx),
 		});
+		assertProjectVisible(project, ctx);
 		return sprint;
 	}
 
-	async update(sprintId: string, updates: Partial<Sprint>, token?: string, caller?: CallerMembership): Promise<Sprint> {
+	async update(sprintId: string, updates: Partial<Sprint>, ctx: PMCtx, token?: string): Promise<Sprint> {
 		const { sprint, project } = await this.#fetchSprintAndProject(sprintId);
 		if (!sprint) throw new ProjectManagerError(404, "SPRINT_NOT_FOUND", `Sprint ${sprintId} no encontrado`);
 		// Update sobre sprints: rol PM / permiso formal, o owner del proyecto.
 		await this.#permissionChecker.requirePermission(token, CRUDXAction.UPDATE, PMScopes.SPRINTS, {
 			ownerId: project?.ownerId,
-			allowIf: projectOwnerAllowIf(project, caller),
+			allowIf: projectOwnerAllowIf(project, ctx),
 		});
+		assertProjectVisible(project, ctx);
 		const safe = stripImmutableFields(updates, SPRINT_IMMUTABLE_FIELDS);
 		const updated = await this.sprintModel.findOneAndUpdate({ id: sprintId }, safe, { new: true });
 		if (!updated) throw new ProjectManagerError(404, "SPRINT_NOT_FOUND", `Sprint ${sprintId} no encontrado`);
 		return docToPlain<Sprint>(updated)!;
 	}
 
-	async delete(sprintId: string, token?: string, caller?: CallerMembership): Promise<void> {
+	async delete(sprintId: string, ctx: PMCtx, token?: string): Promise<void> {
 		const { sprint, project } = await this.#fetchSprintAndProject(sprintId);
 		await this.#permissionChecker.requirePermission(token, CRUDXAction.DELETE, PMScopes.SPRINTS, {
 			ownerId: project?.ownerId,
-			allowIf: projectOwnerAllowIf(project, caller),
+			allowIf: projectOwnerAllowIf(project, ctx),
 		});
+		assertProjectVisible(project, ctx);
 		if (!sprint) throw new ProjectManagerError(404, "SPRINT_NOT_FOUND", `Sprint ${sprintId} no encontrado`);
 		const result = await this.sprintModel.deleteOne({ id: sprintId });
 		if (result.deletedCount === 0) throw new ProjectManagerError(404, "SPRINT_NOT_FOUND", `Sprint ${sprintId} no encontrado`);
 		this.logger.logDebug(`Sprint ${sprintId} eliminado`);
 	}
 
-	async setStatus(sprintId: string, status: Sprint["status"], token?: string, caller?: CallerMembership): Promise<Sprint> {
+	async setStatus(sprintId: string, status: Sprint["status"], ctx: PMCtx, token?: string): Promise<Sprint> {
 		const { sprint, project } = await this.#fetchSprintAndProject(sprintId);
 		if (!sprint) throw new ProjectManagerError(404, "SPRINT_NOT_FOUND", `Sprint ${sprintId} no encontrado`);
 		await this.#permissionChecker.requirePermission(token, CRUDXAction.UPDATE, PMScopes.SPRINTS, {
 			ownerId: project?.ownerId,
-			allowIf: projectOwnerAllowIf(project, caller),
+			allowIf: projectOwnerAllowIf(project, ctx),
 		});
+		assertProjectVisible(project, ctx);
 		const updates: Partial<Sprint> = { status };
 		if (status === "completed") updates.completedAt = new Date();
 		const updated = await this.sprintModel.findOneAndUpdate({ id: sprintId }, updates, { new: true });

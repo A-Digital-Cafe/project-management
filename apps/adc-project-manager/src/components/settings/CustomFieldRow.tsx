@@ -18,7 +18,7 @@ interface Props {
 export function CustomFieldRow({ def, canEdit, onUpdate, onRemove, onUpdateBadge, onAddBadge, onRemoveBadge }: Readonly<Props>) {
 	const { t } = useTranslation({ namespace: "adc-project-manager" });
 	return (
-		<li className="p-2 border border-border rounded-md bg-surface space-y-2">
+		<li className="p-2 border border-divider rounded-md bg-surface space-y-2">
 			<div className="flex items-center gap-2">
 				<adc-input value={def.name} onInput={(e: any) => onUpdate({ name: e.target.value })} disabled={!canEdit} />
 				<adc-combobox

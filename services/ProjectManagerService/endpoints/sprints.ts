@@ -30,8 +30,8 @@ export class SprintEndpoints {
 	})
 	static async list(ctx: EndpointCtx<{ projectId: string }>) {
 		const service = SprintEndpoints.service;
-		const caller = await service.resolveCaller(SprintEndpoints.kernelKey, ctx);
-		return { sprints: await service.sprints.list(ctx.params.projectId, ctx.token ?? undefined, caller) };
+		const pmCtx = await service.buildPMCtx(SprintEndpoints.kernelKey, ctx);
+		return { sprints: await service.sprints.list(ctx.params.projectId, pmCtx, ctx.token ?? undefined) };
 	}
 
 	@RegisterEndpoint({
@@ -49,8 +49,8 @@ export class SprintEndpoints {
 	static async create(ctx: EndpointCtx<{ projectId: string }, Partial<Sprint> & { name: string }>) {
 		if (!ctx.data?.name) throw new ProjectManagerError(400, "MISSING_FIELDS", "`name` es requerido");
 		const service = SprintEndpoints.service;
-		const caller = await service.resolveCaller(SprintEndpoints.kernelKey, ctx);
-		return service.sprints.create(ctx.params.projectId, ctx.data, ctx.token ?? undefined, caller);
+		const pmCtx = await service.buildPMCtx(SprintEndpoints.kernelKey, ctx);
+		return service.sprints.create(ctx.params.projectId, ctx.data, pmCtx, ctx.token ?? undefined);
 	}
 
 	@RegisterEndpoint({
@@ -66,8 +66,8 @@ export class SprintEndpoints {
 	})
 	static async update(ctx: EndpointCtx<{ id: string }, Partial<Sprint>>) {
 		const service = SprintEndpoints.service;
-		const caller = await service.resolveCaller(SprintEndpoints.kernelKey, ctx);
-		return service.sprints.update(ctx.params.id, ctx.data ?? {}, ctx.token ?? undefined, caller);
+		const pmCtx = await service.buildPMCtx(SprintEndpoints.kernelKey, ctx);
+		return service.sprints.update(ctx.params.id, ctx.data ?? {}, pmCtx, ctx.token ?? undefined);
 	}
 
 	@RegisterEndpoint({
@@ -83,8 +83,8 @@ export class SprintEndpoints {
 	})
 	static async delete(ctx: EndpointCtx<{ id: string }>) {
 		const service = SprintEndpoints.service;
-		const caller = await service.resolveCaller(SprintEndpoints.kernelKey, ctx);
-		await service.sprints.delete(ctx.params.id, ctx.token ?? undefined, caller);
+		const pmCtx = await service.buildPMCtx(SprintEndpoints.kernelKey, ctx);
+		await service.sprints.delete(ctx.params.id, pmCtx, ctx.token ?? undefined);
 		return { ok: true };
 	}
 
@@ -101,8 +101,8 @@ export class SprintEndpoints {
 	})
 	static async start(ctx: EndpointCtx<{ id: string }>) {
 		const service = SprintEndpoints.service;
-		const caller = await service.resolveCaller(SprintEndpoints.kernelKey, ctx);
-		return service.sprints.setStatus(ctx.params.id, "active", ctx.token ?? undefined, caller);
+		const pmCtx = await service.buildPMCtx(SprintEndpoints.kernelKey, ctx);
+		return service.sprints.setStatus(ctx.params.id, "active", pmCtx, ctx.token ?? undefined);
 	}
 
 	@RegisterEndpoint({
@@ -118,7 +118,7 @@ export class SprintEndpoints {
 	})
 	static async complete(ctx: EndpointCtx<{ id: string }>) {
 		const service = SprintEndpoints.service;
-		const caller = await service.resolveCaller(SprintEndpoints.kernelKey, ctx);
-		return service.sprints.setStatus(ctx.params.id, "completed", ctx.token ?? undefined, caller);
+		const pmCtx = await service.buildPMCtx(SprintEndpoints.kernelKey, ctx);
+		return service.sprints.setStatus(ctx.params.id, "completed", pmCtx, ctx.token ?? undefined);
 	}
 }

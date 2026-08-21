@@ -39,7 +39,7 @@ export function LinkTypesSection({ project, canEdit, onSaved }: Readonly<Props>)
 		<div className="space-y-3">
 			<ul className="space-y-2">
 				{types.map((l) => (
-					<li key={l.id} className="flex items-center gap-2 p-2 border border-border rounded-md bg-surface">
+					<li key={l.id} className="flex items-center gap-2 p-2 border border-divider rounded-md bg-surface">
 						<adc-input
 							value={l.name}
 							placeholder={t("settings.linkName")}

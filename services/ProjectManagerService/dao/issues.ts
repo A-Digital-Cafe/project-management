@@ -13,10 +13,10 @@ import { buildDiffEntries } from "../utils/diff.ts";
 import { sortIssuesByPriority, normalizeUrgency, normalizeDifficulty } from "@common/utils/project-manager/priority.ts";
 import { sanitizeBlocks } from "@common/utils/blocks/sanitize.ts";
 import { isProjectAccessibleInOrgContext, isProjectMember } from "../utils/project-access.ts";
-import type { ProjectInternals, CallerMembership } from "./projects.ts";
+import type { ProjectInternals, PMCtx } from "./projects.ts";
 import type { Project } from "@common/types/project-manager/Project.ts";
 import type { PMTierResolver } from "../utils/tier-resolver.ts";
-import { docToPlain, findByIdAsPlain, projectOwnerAllowIf, stripImmutableFields } from "./shared.ts";
+import { assertProjectVisible, docToPlain, findByIdAsPlain, projectOwnerAllowIf, stripImmutableFields } from "./shared.ts";
 import { applyReservedCustomFields } from "../utils/reserved-custom-fields.ts";
 
 // `closedAt` lo sella el servidor en las transiciones de columna: aceptarlo por el body dejaría al
@@ -93,11 +93,17 @@ export class IssueManager {
 		this.#permissionChecker = new PermissionChecker(getAuthVerifier, "IssueManager", PM_RESOURCE_NAME);
 	}
 
-	async create(project: Project, input: Partial<Issue> & Pick<Issue, "title">, token?: string, caller?: CallerMembership): Promise<Issue> {
+	/** Reporter o asignado del issue: llega a SU issue aunque el tablero no sea suyo. */
+	#isIssueParticipant(issue: Issue, ctx: PMCtx): boolean {
+		return issue.reporterId === ctx.userId || isAssignee(issue, ctx.userId, ctx.groupIds);
+	}
+
+	async create(project: Project, input: Partial<Issue> & Pick<Issue, "title">, ctx: PMCtx, token?: string): Promise<Issue> {
 		const reporterId = await this.#permissionChecker.requirePermission(token, CRUDXAction.WRITE, PMScopes.ISSUES, {
 			ownerId: project.ownerId,
-			allowIf: projectOwnerAllowIf(project, caller),
+			allowIf: projectOwnerAllowIf(project, ctx),
 		});
+		assertProjectVisible(project, ctx);
 		// `customFields` viene del cliente: las claves que son de la plataforma no se aceptan por acá.
 		const safe = input.customFields ? { ...input, customFields: applyReservedCustomFields(input.customFields) } : input;
 		return this.#createWithReporter(project, safe, reporterId);
@@ -115,10 +121,7 @@ export class IssueManager {
 	 */
 	async listBugBountyInternal(kernelKey: symbol, projectId: string, limit = 500): Promise<Issue[]> {
 		if (kernelKey !== this.#kernelKey) throw new Error("Acceso denegado: kernel key inválida");
-		const docs = await this.issueModel
-			.find({ projectId, "customFields.bugBounty": "true" })
-			.sort({ createdAt: -1 })
-			.limit(limit);
+		const docs = await this.issueModel.find({ projectId, "customFields.bugBounty": "true" }).sort({ createdAt: -1 }).limit(limit);
 		return docs.map((d) => normalizeIssueDescription(docToPlain<Issue>(d)!));
 	}
 
@@ -160,9 +163,7 @@ export class IssueManager {
 		const columnKey = input.columnKey ?? autoColumn.key;
 		const targetColumn = project.kanbanColumns.some((c) => c.key === columnKey) ? columnKey : autoColumn.key;
 		if (targetColumn !== columnKey) {
-			this.logger.logWarn(
-				`El tablero "${project.slug}" no tiene la columna "${columnKey}": el issue se crea en "${autoColumn.key}".`
-			);
+			this.logger.logWarn(`El tablero "${project.slug}" no tiene la columna "${columnKey}": el issue se crea en "${autoColumn.key}".`);
 		}
 
 		const number = await this.projectInternals.incrementIssueCounter(project.id);
@@ -204,26 +205,31 @@ export class IssueManager {
 		return issue;
 	}
 
-	async get(issueId: string, token?: string, caller?: CallerMembership): Promise<Issue | null> {
+	async get(issueId: string, ctx: PMCtx, token?: string): Promise<Issue | null> {
 		const issue = await findByIdAsPlain<Issue>(this.issueModel, issueId);
 		const project = issue ? await this.projectInternals.fetchProject(issue.projectId) : null;
-		const groupIds = caller?.groupIds ?? [];
-		const tokenOrgId = caller?.tokenOrgId ?? null;
+		const groupIds = ctx.groupIds;
+		const tokenOrgId = ctx.tokenOrgId;
 		// Aislamiento por contexto: si el proyecto es org-scoped y el token no está en esa org,
 		// ni membresía ni assignment conceden acceso (hay que switchear primero).
 		const inOrgCtx = isProjectAccessibleInOrgContext(project, tokenOrgId);
+		const assigned = inOrgCtx && isAssignee(issue, ctx.userId, groupIds);
 		await this.#permissionChecker.requirePermission(token, CRUDXAction.READ, PMScopes.ISSUES, {
 			ownerId: issue?.reporterId ?? project?.ownerId,
 			allowIf: (uid) => inOrgCtx && (isProjectMember(project, { id: uid, groupIds }, tokenOrgId) || isAssignee(issue, uid, groupIds)),
 		});
+		// El permiso formal no alcanza para entrar al tablero de otro; el asignado sí llega
+		// a SU issue aunque no sea miembro del tablero.
+		assertProjectVisible(project, ctx, { grantedByIssue: assigned });
 		return normalizeIssueDescription(issue);
 	}
 
-	async list(project: Project, filters: IssueListFilters = {}, token?: string, caller?: CallerMembership): Promise<Issue[]> {
+	async list(project: Project, ctx: PMCtx, filters: IssueListFilters = {}, token?: string): Promise<Issue[]> {
 		await this.#permissionChecker.requirePermission(token, CRUDXAction.READ, PMScopes.ISSUES, {
 			ownerId: project.ownerId,
-			allowIf: (uid) => isProjectMember(project, { id: uid, groupIds: caller?.groupIds ?? [] }, caller?.tokenOrgId ?? null),
+			allowIf: (uid) => isProjectMember(project, { id: uid, groupIds: ctx.groupIds }, ctx.tokenOrgId),
 		});
+		assertProjectVisible(project, ctx);
 
 		const query: Record<string, unknown> = { projectId: project.id };
 		if (filters.sprintId) query.sprintId = filters.sprintId;
@@ -241,25 +247,20 @@ export class IssueManager {
 		return issues;
 	}
 
-	async update(
-		issueId: string,
-		updates: Partial<Issue>,
-		reason: string | undefined,
-		token?: string,
-		caller?: CallerMembership
-	): Promise<Issue> {
+	async update(issueId: string, updates: Partial<Issue>, reason: string | undefined, ctx: PMCtx, token?: string): Promise<Issue> {
 		const current = await findByIdAsPlain<Issue>(this.issueModel, issueId);
 		if (!current) throw new ProjectManagerError(404, "ISSUE_NOT_FOUND", `Issue ${issueId} no encontrado`);
 		const project = await this.projectInternals.fetchProject(current.projectId);
 
-		const groupIds = caller?.groupIds ?? [];
-		const tokenOrgId = caller?.tokenOrgId ?? null;
+		const groupIds = ctx.groupIds;
+		const tokenOrgId = ctx.tokenOrgId;
 		const inOrgCtx = isProjectAccessibleInOrgContext(project, tokenOrgId);
 		// Update: reporter (owner del issue), assignees directos/por grupo, u owner del proyecto.
 		const actorId = await this.#permissionChecker.requirePermission(token, CRUDXAction.UPDATE, PMScopes.ISSUES, {
 			ownerId: current.reporterId ?? project?.ownerId,
 			allowIf: (uid) => inOrgCtx && (current.reporterId === uid || isAssignee(current, uid, groupIds) || project?.ownerId === uid),
 		});
+		assertProjectVisible(project, ctx, { grantedByIssue: inOrgCtx && this.#isIssueParticipant(current, ctx) });
 
 		if (updates.priority) {
 			updates.priority = {
@@ -294,10 +295,10 @@ export class IssueManager {
 		return normalizeIssueDescription(docToPlain<Issue>(updated)!);
 	}
 
-	async delete(issueId: string, token?: string, caller?: CallerMembership): Promise<void> {
+	async delete(issueId: string, ctx: PMCtx, token?: string): Promise<void> {
 		const issue = await findByIdAsPlain<Issue>(this.issueModel, issueId);
 		const project = issue ? await this.projectInternals.fetchProject(issue.projectId) : null;
-		const tokenOrgId = caller?.tokenOrgId ?? null;
+		const tokenOrgId = ctx.tokenOrgId;
 		const inOrgCtx = isProjectAccessibleInOrgContext(project, tokenOrgId);
 
 		await this.#permissionChecker.requirePermission(token, CRUDXAction.DELETE, PMScopes.ISSUES, {
@@ -305,25 +306,27 @@ export class IssueManager {
 			// Delete es restrictivo: owner del proyecto o reporter del issue.
 			allowIf: (uid) => inOrgCtx && ((!!project && project.ownerId === uid) || (!!issue && issue.reporterId === uid)),
 		});
+		assertProjectVisible(project, ctx, { grantedByIssue: inOrgCtx && issue?.reporterId === ctx.userId });
 		if (!issue) throw new ProjectManagerError(404, "ISSUE_NOT_FOUND", `Issue ${issueId} no encontrado`);
 		const result = await this.issueModel.deleteOne({ id: issueId });
 		if (result.deletedCount === 0) throw new ProjectManagerError(404, "ISSUE_NOT_FOUND", `Issue ${issueId} no encontrado`);
 	}
 
-	async move(issueId: string, targetColumnKey: string, reason: string | undefined, token?: string, caller?: CallerMembership): Promise<Issue> {
+	async move(issueId: string, targetColumnKey: string, reason: string | undefined, ctx: PMCtx, token?: string): Promise<Issue> {
 		const current = await findByIdAsPlain<Issue>(this.issueModel, issueId);
 		if (!current) throw new ProjectManagerError(404, "ISSUE_NOT_FOUND", `Issue ${issueId} no encontrado`);
 		const project = await this.projectInternals.fetchProject(current.projectId);
 		if (!project) throw new ProjectManagerError(404, "PROJECT_NOT_FOUND", `Proyecto ${current.projectId} no encontrado`);
 
-		const groupIds = caller?.groupIds ?? [];
-		const tokenOrgId = caller?.tokenOrgId ?? null;
+		const groupIds = ctx.groupIds;
+		const tokenOrgId = ctx.tokenOrgId;
 		const inOrgCtx = isProjectAccessibleInOrgContext(project, tokenOrgId);
 		// Move: reporter, assignees u owner del proyecto.
 		const actorId = await this.#permissionChecker.requirePermission(token, CRUDXAction.UPDATE, PMScopes.ISSUES, {
 			ownerId: current.reporterId ?? project.ownerId,
 			allowIf: (uid) => inOrgCtx && (current.reporterId === uid || isAssignee(current, uid, groupIds) || project.ownerId === uid),
 		});
+		assertProjectVisible(project, ctx, { grantedByIssue: inOrgCtx && this.#isIssueParticipant(current, ctx) });
 
 		const column = project.kanbanColumns.find((c) => c.key === targetColumnKey);
 		if (!column) throw new ProjectManagerError(400, "COLUMN_NOT_FOUND", `Columna '${targetColumnKey}' no existe en el proyecto`);

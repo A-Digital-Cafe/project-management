@@ -66,7 +66,7 @@ export function ColumnsSection({ project, canEdit, onSaved }: Readonly<Props>) {
 		<div className="space-y-3">
 			<ul className="space-y-2">
 				{cols.map((c, i) => (
-					<li key={c.id} className="flex items-center gap-2 p-2 border border-border rounded-md bg-surface">
+					<li key={c.id} className="flex items-center gap-2 p-2 border border-divider rounded-md bg-surface">
 						<div className="flex flex-col">
 							<button
 								type="button"
@@ -119,7 +119,7 @@ export function ColumnsSection({ project, canEdit, onSaved }: Readonly<Props>) {
 					</li>
 				))}
 			</ul>
-			<div className="pt-3 border-t border-border">
+			<div className="pt-3 border-t border-divider">
 				{/* El texto va en un <label> HERMANO y no envolviendo al switch: adc-toggle ya trae su propio
 				    <label>, y anidarlos reenvía el click dos veces al mismo input (se activa y se desactiva). */}
 				<div className="flex items-start gap-2 text-sm">

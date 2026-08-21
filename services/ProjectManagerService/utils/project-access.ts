@@ -1,5 +1,22 @@
-import type { Project } from "@common/types/project-manager/Project.ts";
+import { type Project, SYSTEM_PROJECT_OWNER_ID } from "@common/types/project-manager/Project.ts";
 import type { User } from "@common/types/identity/User.ts";
+
+/** Owner de los tableros que crea y opera el propio servicio (tickets, solicitudes de org). */
+export const SYSTEM_OWNER_ID = SYSTEM_PROJECT_OWNER_ID;
+
+/**
+ * Contexto mínimo del caller para decidir el acceso a un tablero. `PMCtx` lo
+ * satisface; se declara acá para que el predicado no dependa de los DAOs.
+ */
+export interface ProjectAccessCtx {
+	userId: string;
+	groupIds: string[];
+	tokenOrgId: string | null;
+	/** Permiso formal `project-manager:PROJECTS:READ` a nivel global (token sin orgId). */
+	hasGlobalPMRead: boolean;
+	/** Rol `Admin` global (token sin orgId). */
+	isGlobalAdmin: boolean;
+}
 
 /**
  * Un proyecto org-scoped (`orgId != null`) sólo es accesible si el token actual
@@ -14,12 +31,19 @@ export function isProjectAccessibleInOrgContext(project: Project | null | undefi
 	return (tokenOrgId ?? null) === project.orgId;
 }
 
+/** Owner, miembro directo o miembro por grupo. No mira el contexto de org. */
+function isExplicitMember(project: Project, userId: string, groupIds: readonly string[]): boolean {
+	if (!userId) return false;
+	if (project.ownerId === userId) return true;
+	if (project.memberUserIds?.includes(userId)) return true;
+	return project.memberGroupIds?.some((gid) => groupIds.includes(gid)) ?? false;
+}
+
 /**
  * Determina si un usuario tiene acceso a un proyecto según membresía directa,
  * membresía por grupo o role override.
  *
  * No reemplaza el chequeo de permisos del recurso `project-manager`; lo complementa.
- * Un usuario con permiso global PM (`PROJECTS.READ`) ve proyectos incluso sin membresía.
  *
  * Si el proyecto es org-scoped, `tokenOrgId` debe coincidir con `project.orgId`;
  * de lo contrario se deniega sin importar la membresía (aislamiento de contexto).
@@ -31,51 +55,48 @@ export function isProjectMember(
 ): boolean {
 	if (!project || !user) return false;
 	if (!isProjectAccessibleInOrgContext(project, tokenOrgId)) return false;
-	if (project.ownerId === user.id) return true;
-	if (project.memberUserIds?.includes(user.id)) return true;
-	const groupIds = user.groupIds ?? [];
-	return project.memberGroupIds?.some((gid) => groupIds.includes(gid)) ?? false;
+	return isExplicitMember(project, user.id, user.groupIds ?? []);
+}
+
+/** `true` si el tablero lo gestiona el servicio (tickets de soporte, solicitudes de org). */
+export function isSystemBoard(project: Project | null | undefined): boolean {
+	return project?.ownerId === SYSTEM_OWNER_ID;
 }
 
 /**
- * Filtra proyectos según reglas de visibilidad org-scoped / global (ver plan §3.6).
+ * ¿Puede el caller ver este tablero? **Única fuente de verdad** de la visibilidad
+ * de un proyecto: la usan tanto el listado como el gate de acceso por id/slug.
  *
- * @param projects lista completa (ya cargada por query base de orgId)
- * @param ctx contexto del caller: orgId del token, permisos globales PM, userId y groupIds
+ * El permiso formal de `project-manager` NO alcanza para llegar al tablero de otro:
+ * un rol global (Admin, Project Manager) puede administrar la plataforma, pero los
+ * tableros privados y los de una organización ajena son datos de sus dueños. El rol
+ * global sólo agrega los **tableros de sistema**, que son de la plataforma y no de
+ * un usuario (ahí viven los tickets de soporte y las solicitudes de alta de org).
  */
-export function filterVisibleProjects(
-	projects: Project[],
-	ctx: {
-		userId: string;
-		groupIds: string[];
-		tokenOrgId: string | null;
-		hasGlobalPMRead: boolean;
-		isGlobalAdmin: boolean;
-	}
-): Project[] {
-	if (ctx.isGlobalAdmin) return projects;
+export function isProjectVisible(project: Project | null | undefined, ctx: ProjectAccessCtx): boolean {
+	if (!project) return false;
 
-	return projects.filter((p) => {
-		// Aislamiento por contexto: proyectos org-scoped sólo son visibles si el
-		// token actual apunta a esa org. Un token personal NO debe ver proyectos
-		// de org aunque el usuario sea owner/miembro (debe switchear primero).
-		if (!isProjectAccessibleInOrgContext(p, ctx.tokenOrgId)) return false;
+	// Aislamiento por contexto: un tablero de org sólo se ve con el token en esa org.
+	// Como `switch-org` valida la pertenencia, esto ya implica "soy miembro de la org".
+	if (!isProjectAccessibleInOrgContext(project, ctx.tokenOrgId)) return false;
 
-		// Membresía explícita (owner, miembro directo o por grupo) concede visibilidad
-		// una vez validado el contexto de org.
-		const isExplicitMember =
-			p.ownerId === ctx.userId ||
-			(p.memberUserIds?.includes(ctx.userId) ?? false) ||
-			(p.memberGroupIds?.some((gid) => ctx.groupIds.includes(gid)) ?? false);
-		if (isExplicitMember) return true;
+	// Membresía explícita (owner, miembro directo o por grupo).
+	if (isExplicitMember(project, ctx.userId, ctx.groupIds)) return true;
 
-		// Proyectos privados: sólo owner/miembros o admin global (ya filtrado arriba).
-		if (p.visibility === "private") return false;
+	// Tableros de sistema: gestión de plataforma, no datos de un usuario.
+	if (isSystemBoard(project)) return ctx.isGlobalAdmin || ctx.hasGlobalPMRead;
 
-		// Proyectos globales (orgId=null) no privados: visibles para roles con PM read.
-		if (p.orgId === null) return ctx.hasGlobalPMRead;
+	// Privado ajeno: nadie más, ni con permiso formal.
+	if (project.visibility === "private") return false;
 
-		// Proyectos de org: el caller debe pertenecer a la org.
-		return !!(ctx.tokenOrgId && p.orgId === ctx.tokenOrgId);
-	});
+	// Global no privado = público: cualquier sesión válida.
+	if (project.orgId === null) return true;
+
+	// Tablero de org: el token ya quedó validado contra `project.orgId` arriba.
+	return true;
+}
+
+/** Filtra una lista de proyectos con el mismo criterio que `isProjectVisible`. */
+export function filterVisibleProjects(projects: Project[], ctx: ProjectAccessCtx): Project[] {
+	return projects.filter((p) => isProjectVisible(p, ctx));
 }

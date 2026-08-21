@@ -24,7 +24,7 @@ export function IssueActivityTabs({ issueId, caller }: Readonly<Props>) {
 
 	return (
 		<div className="pt-2">
-			<div className="flex gap-2 border-b border-border">
+			<div className="flex gap-2 border-b border-divider">
 				<button
 					type="button"
 					className={`px-3 py-1.5 text-sm border-b-2 -mb-px ${tab === "comments" ? "border-primary text-text" : "border-transparent text-muted"}`}

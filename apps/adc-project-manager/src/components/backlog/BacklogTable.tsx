@@ -23,7 +23,7 @@ export function BacklogTable({ issues, project, perms, caller, isDragEnabled, on
 	return (
 		<table className="w-full border-collapse">
 			<thead>
-				<tr className="border-b border-border">
+				<tr className="border-b border-divider">
 					<th className="text-left p-2 text-xs uppercase text-muted">{t("issues.key")}</th>
 					<th className="text-left p-2 text-xs uppercase text-muted">{t("issues.issueTitle")}</th>
 					<th className="text-left p-2 text-xs uppercase text-muted">{t("issues.column")}</th>
@@ -37,7 +37,7 @@ export function BacklogTable({ issues, project, perms, caller, isDragEnabled, on
 					return (
 						<tr
 							key={issue.id}
-							className="border-t border-border"
+							className="border-t border-divider"
 							draggable={isDragEnabled}
 							onDragStart={
 								isDragEnabled

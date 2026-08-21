@@ -1,7 +1,7 @@
 import type { Model } from "mongoose";
 import type { Project } from "@common/types/project-manager/Project.ts";
 import { ProjectManagerError } from "@common/types/custom-errors/ProjectManagerError.ts";
-import { isProjectAccessibleInOrgContext, isProjectMember } from "../utils/project-access.ts";
+import { isProjectAccessibleInOrgContext, isProjectMember, isProjectVisible, type ProjectAccessCtx } from "../utils/project-access.ts";
 import type { CallerMembership, ProjectInternals } from "./projects.ts";
 
 /**
@@ -52,6 +52,22 @@ export function projectMemberAllowIf(project: Project | null, caller?: CallerMem
 export function projectOwnerAllowIf(project: Project | null, caller?: CallerMembership): (uid: string) => boolean {
 	const tokenOrgId = caller?.tokenOrgId ?? null;
 	return (uid) => !!project && project.ownerId === uid && isProjectAccessibleInOrgContext(project, tokenOrgId);
+}
+
+/**
+ * Gate duro de acceso al tablero: si el caller no lo ve (ver `isProjectVisible`),
+ * la operación termina en 404 aunque su permiso formal de `project-manager` alcance.
+ * Es lo que impide que un rol global lea o toque el tablero privado de otro; se
+ * responde "no encontrado" y no 403 para no confirmar que el tablero existe.
+ *
+ * `grantedByIssue`: el caller ya fue autorizado sobre un issue del proyecto (p. ej.
+ * un asignado que no es miembro del tablero), así que el proyecto se resuelve como
+ * contexto de ese issue y no como un acceso al tablero.
+ */
+export function assertProjectVisible(project: Project | null | undefined, ctx: ProjectAccessCtx, opts?: { grantedByIssue?: boolean }): void {
+	if (!project || opts?.grantedByIssue) return;
+	if (isProjectVisible(project, ctx)) return;
+	throw new ProjectManagerError(404, "PROJECT_NOT_FOUND", `Proyecto ${project.id} no encontrado`);
 }
 
 /** Carga el proyecto o lanza 404 `PROJECT_NOT_FOUND`. */

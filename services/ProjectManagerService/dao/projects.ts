@@ -8,9 +8,9 @@ import { type AuthVerifierGetter, PermissionChecker } from "@common/types/auth-v
 import { PMScopes, PM_RESOURCE_NAME } from "@common/types/project-manager/permissions.ts";
 import { CRUDXAction } from "@common/types/Actions.ts";
 import { ProjectManagerError } from "@common/types/custom-errors/ProjectManagerError.ts";
-import { filterVisibleProjects, isProjectMember } from "../utils/project-access.ts";
+import { filterVisibleProjects, isProjectMember, isSystemBoard, SYSTEM_OWNER_ID, type ProjectAccessCtx } from "../utils/project-access.ts";
 import type { PMTierResolver } from "../utils/tier-resolver.ts";
-import { docToPlain, stripImmutableFields } from "./shared.ts";
+import { assertProjectVisible, docToPlain, stripImmutableFields } from "./shared.ts";
 
 /** Campos que nunca deben mutarse vía un PUT genérico. */
 const PROJECT_IMMUTABLE_FIELDS: readonly (keyof Project)[] = [
@@ -23,17 +23,6 @@ const PROJECT_IMMUTABLE_FIELDS: readonly (keyof Project)[] = [
 	"visibility",
 	"slug",
 ];
-
-interface ListProjectsContext {
-	userId: string;
-	groupIds: string[];
-	tokenOrgId: string | null;
-	hasGlobalPMRead: boolean;
-	isGlobalAdmin: boolean;
-}
-
-/** Owner de los proyectos creados automáticamente por el servicio (tableros de tickets). */
-const SYSTEM_OWNER_ID = "system";
 
 /** Columna deseada para reconciliar un tablero (forma estructural, sin acoplar a tipos de tickets). */
 export interface DesiredColumn {
@@ -96,14 +85,13 @@ export interface CallerMembership {
  *
  * Campos derivados:
  *  - `isGlobalAdmin`: rol `Admin` a nivel global (token sin orgId).
- *  - `hasGlobalPMRead` / `hasGlobalPMWrite`: permisos formales globales.
+ *  - `hasGlobalPMRead` / `hasGlobalPMWrite`: permisos formales globales sobre
+ *    `project-manager` (no habilitan por sí solos a ver el tablero de otro:
+ *    ver `isProjectVisible`).
  *  - `tokenOrgId`: `orgId` del token actual (modo org) o `null`.
  *  - `isOrgAdminOrPM(orgId)`: función memoizable para chequear admin/PM en una org.
  */
-export interface PMCtx extends CallerMembership {
-	tokenOrgId: string | null;
-	isGlobalAdmin: boolean;
-	hasGlobalPMRead: boolean;
+export interface PMCtx extends CallerMembership, ProjectAccessCtx {
 	hasGlobalPMWrite: boolean;
 	isOrgAdminOrPM: (orgId: string) => Promise<boolean>;
 }
@@ -343,21 +331,28 @@ export class ProjectManager {
 		return docToPlain<Project>(updated);
 	}
 
-	async getProject(projectId: string, token?: string, caller?: CallerMembership): Promise<Project | null> {
-		const project = await this.#fetchProject(projectId);
+	/**
+	 * Autoriza la lectura del tablero: primero el permiso formal (o membresía), y
+	 * después el gate de visibilidad, que es el que impide que un rol global llegue
+	 * al tablero privado de otro. `grantedByIssue` se propaga a `assertProjectVisible`.
+	 */
+	async #requireProjectRead(project: Project | null, ctx: PMCtx, token?: string, opts?: { grantedByIssue?: boolean }): Promise<void> {
 		await this.#permissionChecker.requirePermission(token, CRUDXAction.READ, PMScopes.PROJECTS, {
 			ownerId: project?.ownerId,
-			allowIf: (uid) => isProjectMember(project, { id: uid, groupIds: caller?.groupIds ?? [] }, caller?.tokenOrgId ?? null),
+			allowIf: (uid) => isProjectMember(project, { id: uid, groupIds: ctx.groupIds }, ctx.tokenOrgId),
 		});
+		assertProjectVisible(project, ctx, opts);
+	}
+
+	async getProject(projectId: string, ctx: PMCtx, token?: string, opts?: { grantedByIssue?: boolean }): Promise<Project | null> {
+		const project = await this.#fetchProject(projectId);
+		await this.#requireProjectRead(project, ctx, token, opts);
 		return project;
 	}
 
-	async getProjectBySlug(slug: string, orgId: string | null, token?: string, caller?: CallerMembership): Promise<Project | null> {
+	async getProjectBySlug(slug: string, orgId: string | null, ctx: PMCtx, token?: string): Promise<Project | null> {
 		const project = await this.#fetchProjectBySlug(slug, orgId);
-		await this.#permissionChecker.requirePermission(token, CRUDXAction.READ, PMScopes.PROJECTS, {
-			ownerId: project?.ownerId,
-			allowIf: (uid) => isProjectMember(project, { id: uid, groupIds: caller?.groupIds ?? [] }, caller?.tokenOrgId ?? null),
-		});
+		await this.#requireProjectRead(project, ctx, token);
 		return project;
 	}
 
@@ -368,17 +363,15 @@ export class ProjectManager {
 		return !existing;
 	}
 
-	async listVisibleProjects(ctx: ListProjectsContext, token?: string): Promise<Project[]> {
+	async listVisibleProjects(ctx: ProjectAccessCtx, token?: string): Promise<Project[]> {
 		await this.#permissionChecker.resolveUserId(token);
 
-		if (ctx.isGlobalAdmin) {
-			const docs = await this.projectModel.find({});
-			return docs.map((d) => docToPlain<Project>(d)!);
-		}
-
 		const orConditions: Record<string, unknown>[] = [];
-		// Lectura global: sólo proyectos públicos (no privados) de contexto global.
-		if (ctx.hasGlobalPMRead) orConditions.push({ orgId: null, visibility: { $ne: "private" } });
+		// Proyectos públicos: contexto global y no privados.
+		orConditions.push({ orgId: null, visibility: { $ne: "private" } });
+		// Tableros de sistema (tickets, solicitudes de org): son privados, pero de la
+		// plataforma, así que los ve quien la administra. Ningún otro tablero ajeno.
+		if (ctx.isGlobalAdmin || ctx.hasGlobalPMRead) orConditions.push({ orgId: null, ownerId: SYSTEM_OWNER_ID });
 		// Dentro de una org: proyectos de la org (los privados por invariante no tienen orgId,
 		// el filtro es defensivo por si quedaran datos antiguos).
 		if (ctx.tokenOrgId) orConditions.push({ orgId: ctx.tokenOrgId, visibility: { $ne: "private" } });
@@ -394,7 +387,7 @@ export class ProjectManager {
 		return filterVisibleProjects(projects, ctx);
 	}
 
-	async updateProject(projectId: string, updates: Partial<Project>, token?: string, _caller?: CallerMembership): Promise<Project> {
+	async updateProject(projectId: string, updates: Partial<Project>, ctx: PMCtx, token?: string): Promise<Project> {
 		const project = await this.#fetchProject(projectId);
 		if (!project) throw new ProjectManagerError(404, "PROJECT_NOT_FOUND", `Proyecto ${projectId} no encontrado`);
 
@@ -402,6 +395,7 @@ export class ProjectManager {
 			ownerId: project.ownerId,
 			allowIf: (uid) => project.ownerId === uid,
 		});
+		assertProjectVisible(project, ctx);
 
 		if (updates.kanbanColumns) validateKanbanColumns(updates.kanbanColumns);
 
@@ -412,15 +406,21 @@ export class ProjectManager {
 		return docToPlain<Project>(updated)!;
 	}
 
-	async deleteProject(projectId: string, token?: string, caller?: CallerMembership): Promise<void> {
+	async deleteProject(projectId: string, ctx: PMCtx, token?: string): Promise<void> {
 		const project = await this.#fetchProject(projectId);
 		if (!project) throw new ProjectManagerError(404, "PROJECT_NOT_FOUND", `Proyecto ${projectId} no encontrado`);
 
 		await this.#permissionChecker.requirePermission(token, CRUDXAction.DELETE, PMScopes.PROJECTS, {
 			ownerId: project.ownerId,
 			// El owner de un proyecto privado puede eliminarlo aunque no tenga PM.DELETE global.
-			allowIf: (uid) => project.visibility === "private" && project.ownerId === uid && uid === (caller?.userId ?? uid),
+			allowIf: (uid) => project.visibility === "private" && project.ownerId === uid && uid === ctx.userId,
 		});
+		assertProjectVisible(project, ctx);
+		// El tablero de tickets lo repone `reconcileTicketBoards` en el próximo arranque, pero sus
+		// issues no: borrarlo desde la UI se lleva puestos los tickets abiertos.
+		if (isSystemBoard(project)) {
+			throw new ProjectManagerError(403, "PROJECT_ACCESS_DENIED", "Los tableros del sistema no se pueden eliminar");
+		}
 
 		const result = await this.projectModel.deleteOne({ id: projectId });
 		if (result.deletedCount === 0) {

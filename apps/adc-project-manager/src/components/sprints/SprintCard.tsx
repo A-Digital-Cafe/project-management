@@ -90,7 +90,7 @@ export function SprintCard({
 						<label className="block text-xs text-muted mb-1">{t("sprints.startDate")}</label>
 						<input
 							type="date"
-							className="w-full border border-border rounded-md px-2 py-1 text-sm bg-surface text-text"
+							className="w-full border border-divider rounded-md px-2 py-1 text-sm bg-surface text-text"
 							value={form.startDate}
 							onChange={(e) => setForm({ ...form, startDate: e.target.value })}
 						/>
@@ -99,7 +99,7 @@ export function SprintCard({
 						<label className="block text-xs text-muted mb-1">{t("sprints.endDate")}</label>
 						<input
 							type="date"
-							className="w-full border border-border rounded-md px-2 py-1 text-sm bg-surface text-text"
+							className="w-full border border-divider rounded-md px-2 py-1 text-sm bg-surface text-text"
 							value={form.endDate}
 							onChange={(e) => setForm({ ...form, endDate: e.target.value })}
 						/>

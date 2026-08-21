@@ -8,7 +8,7 @@
 import type { CommentPermissionChecker } from "@utilities/comments/comments-utility/index.js";
 import type { Project } from "@common/types/project-manager/Project.ts";
 import type { Issue } from "@common/types/project-manager/Issue.ts";
-import { isProjectMember, isProjectAccessibleInOrgContext } from "../utils/project-access.ts";
+import { isProjectMember, isProjectAccessibleInOrgContext, isSystemBoard } from "../utils/project-access.ts";
 import type { PMCtx } from "../dao/projects.ts";
 
 export interface IssueCommentEndpointCtx {
@@ -29,7 +29,7 @@ function isAssignee(issue: Issue, userId: string, groupIds: string[]): boolean {
 /**
  * Construye el checker para issue-comments. Reglas:
  * - `list`: miembro del proyecto, reporter, assignee, owner del proyecto o
- *   admin/PM global o de la org.
+ *   admin/PM de la org (o de la plataforma, en un tablero de sistema).
  * - `create` / `reply`: igual a `list` (escritura de comentarios).
  * - `react`: igual a `list`.
  * - `edit`: solo el autor del comentario.
@@ -37,27 +37,26 @@ function isAssignee(issue: Issue, userId: string, groupIds: string[]): boolean {
  * - `moderate`: owner del proyecto o admin global / org admin.
  *
  * Todas las acciones requieren que el proyecto sea accesible en el contexto de
- * org (token-orgId vs project-orgId), salvo para roles globales (admin global /
- * PM write global), que gestionan cualquier proyecto sin switchear de contexto.
+ * org (token-orgId vs project-orgId), sin excepción por rol global.
  */
 export const issueCommentsChecker: CommentPermissionChecker = async (action, ctx, comment) => {
 	const c = ctx as IssueCommentEndpointCtx;
 	if (!c.project || !c.issue) return false;
 
-	// Los roles globales (admin global / PM write global) no están sujetos al aislamiento
-	// por contexto de org: `listVisibleProjects` les devuelve también los proyectos
-	// org-scoped y `canEditIssueDescription` ya los deja operar sin switchear. Sin este
-	// bypass el issue se abre pero sus comentarios responden 403. Admin/PM *de la org*
-	// sí queda detrás del gate: debe switchear de contexto primero.
-	const isGlobalPM = c.pmCtx.isGlobalAdmin || c.pmCtx.hasGlobalPMWrite;
-	if (!isGlobalPM && !isProjectAccessibleInOrgContext(c.project, c.tokenOrgId)) return false;
+	// Sin excepciones por rol global: un tablero ajeno ni siquiera se resuelve (ver
+	// `isProjectVisible`), así que acá sólo queda el aislamiento por contexto de org.
+	if (!isProjectAccessibleInOrgContext(c.project, c.tokenOrgId)) return false;
+
+	// Los tableros de sistema (tickets, solicitudes de org) son de la plataforma:
+	// quien la administra los modera aunque no figure como miembro.
+	const isSystemBoardAdmin = isSystemBoard(c.project) && (c.pmCtx.isGlobalAdmin || c.pmCtx.hasGlobalPMWrite);
 
 	const groupIds = c.pmCtx.groupIds;
 	const isOwner = c.project.ownerId === c.userId;
 	const isMember = isProjectMember(c.project, { id: c.userId, groupIds }, c.tokenOrgId);
 	const isReporter = c.issue.reporterId === c.userId;
 	const isIssueAssignee = isAssignee(c.issue, c.userId, groupIds);
-	const isAdmin = isGlobalPM || (c.project.orgId ? await c.pmCtx.isOrgAdminOrPM(c.project.orgId) : false);
+	const isAdmin = isSystemBoardAdmin || (c.project.orgId ? await c.pmCtx.isOrgAdminOrPM(c.project.orgId) : false);
 
 	const baseAccess = isOwner || isMember || isReporter || isIssueAssignee || isAdmin;
 

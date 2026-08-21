@@ -78,11 +78,11 @@ export class ProjectEndpoints {
 	})
 	static async getBySlug(ctx: EndpointCtx<{ orgSlug: string; projectSlug: string }>) {
 		const service = ProjectEndpoints.service;
-		const caller = await service.resolveCaller(ProjectEndpoints.kernelKey, ctx);
+		const pmCtx = await service.buildPMCtx(ProjectEndpoints.kernelKey, ctx);
 		const projectSlug = normalizeSlug(ctx.params.projectSlug);
 		if (!projectSlug) throw new ProjectManagerError(400, "INVALID_SLUG", `Slug de proyecto inválido: '${ctx.params.projectSlug}'`);
 		const orgId = await resolveOrgSlug(service, ctx.params.orgSlug, ctx.token ?? undefined);
-		const project = await service.projects.getProjectBySlug(projectSlug, orgId, ctx.token ?? undefined, caller);
+		const project = await service.projects.getProjectBySlug(projectSlug, orgId, pmCtx, ctx.token ?? undefined);
 		if (!project) throw new ProjectManagerError(404, "PROJECT_NOT_FOUND", "Proyecto no encontrado");
 		return project;
 	}
@@ -98,7 +98,8 @@ export class ProjectEndpoints {
 			rateLimit: PROJECT_CREATE_RATE_LIMIT,
 			tag: "ProjectManagerService/Projects",
 			summary: "Crea un proyecto",
-			description: "La autorización depende de `visibility`: `public` requiere admin global; `org` requiere admin/PM de la org; `private` cualquier usuario autenticado. El `ownerId` se asigna en servidor.",
+			description:
+				"La autorización depende de `visibility`: `public` requiere admin global; `org` requiere admin/PM de la org; `private` cualquier usuario autenticado. El `ownerId` se asigna en servidor.",
 			schema: { body: PS.CreateProjectBody, response: { 201: PS.ProjectResponse } },
 		},
 	})
@@ -128,8 +129,8 @@ export class ProjectEndpoints {
 	})
 	static async get(ctx: EndpointCtx<{ id: string }>) {
 		const service = ProjectEndpoints.service;
-		const caller = await service.resolveCaller(ProjectEndpoints.kernelKey, ctx);
-		const project = await service.projects.getProject(ctx.params.id, ctx.token ?? undefined, caller);
+		const pmCtx = await service.buildPMCtx(ProjectEndpoints.kernelKey, ctx);
+		const project = await service.projects.getProject(ctx.params.id, pmCtx, ctx.token ?? undefined);
 		if (!project) throw new ProjectManagerError(404, "PROJECT_NOT_FOUND", "Proyecto no encontrado");
 		return project;
 	}
@@ -147,8 +148,8 @@ export class ProjectEndpoints {
 	})
 	static async update(ctx: EndpointCtx<{ id: string }, Partial<Project>>) {
 		const service = ProjectEndpoints.service;
-		const caller = await service.resolveCaller(ProjectEndpoints.kernelKey, ctx);
-		return service.projects.updateProject(ctx.params.id, ctx.data ?? {}, ctx.token ?? undefined, caller);
+		const pmCtx = await service.buildPMCtx(ProjectEndpoints.kernelKey, ctx);
+		return service.projects.updateProject(ctx.params.id, ctx.data ?? {}, pmCtx, ctx.token ?? undefined);
 	}
 
 	@RegisterEndpoint({
@@ -164,8 +165,8 @@ export class ProjectEndpoints {
 	})
 	static async delete(ctx: EndpointCtx<{ id: string }>) {
 		const service = ProjectEndpoints.service;
-		const caller = await service.resolveCaller(ProjectEndpoints.kernelKey, ctx);
-		await service.projects.deleteProject(ctx.params.id, ctx.token ?? undefined, caller);
+		const pmCtx = await service.buildPMCtx(ProjectEndpoints.kernelKey, ctx);
+		await service.projects.deleteProject(ctx.params.id, pmCtx, ctx.token ?? undefined);
 		return { ok: true };
 	}
 
@@ -186,12 +187,12 @@ export class ProjectEndpoints {
 			throw new ProjectManagerError(400, "INVALID_FIELD", "`memberUserIds` y `memberGroupIds` deben ser arrays");
 		}
 		const service = ProjectEndpoints.service;
-		const caller = await service.resolveCaller(ProjectEndpoints.kernelKey, ctx);
+		const pmCtx = await service.buildPMCtx(ProjectEndpoints.kernelKey, ctx);
 		return service.projects.updateProject(
 			ctx.params.id,
 			{ memberUserIds: data.memberUserIds, memberGroupIds: data.memberGroupIds },
-			ctx.token ?? undefined,
-			caller
+			pmCtx,
+			ctx.token ?? undefined
 		);
 	}
 
@@ -210,8 +211,8 @@ export class ProjectEndpoints {
 		const columns = ctx.data?.kanbanColumns;
 		if (!Array.isArray(columns)) throw new ProjectManagerError(400, "INVALID_FIELD", "`kanbanColumns` debe ser un array");
 		const service = ProjectEndpoints.service;
-		const caller = await service.resolveCaller(ProjectEndpoints.kernelKey, ctx);
-		return service.projects.updateProject(ctx.params.id, { kanbanColumns: columns }, ctx.token ?? undefined, caller);
+		const pmCtx = await service.buildPMCtx(ProjectEndpoints.kernelKey, ctx);
+		return service.projects.updateProject(ctx.params.id, { kanbanColumns: columns }, pmCtx, ctx.token ?? undefined);
 	}
 
 	@RegisterEndpoint({
@@ -235,8 +236,8 @@ export class ProjectEndpoints {
 			}
 		}
 		const service = ProjectEndpoints.service;
-		const caller = await service.resolveCaller(ProjectEndpoints.kernelKey, ctx);
-		return service.projects.updateProject(ctx.params.id, { customFieldDefs: defs }, ctx.token ?? undefined, caller);
+		const pmCtx = await service.buildPMCtx(ProjectEndpoints.kernelKey, ctx);
+		return service.projects.updateProject(ctx.params.id, { customFieldDefs: defs }, pmCtx, ctx.token ?? undefined);
 	}
 
 	@RegisterEndpoint({
@@ -254,8 +255,8 @@ export class ProjectEndpoints {
 		const types = ctx.data?.issueLinkTypes;
 		if (!Array.isArray(types)) throw new ProjectManagerError(400, "INVALID_FIELD", "`issueLinkTypes` debe ser un array");
 		const service = ProjectEndpoints.service;
-		const caller = await service.resolveCaller(ProjectEndpoints.kernelKey, ctx);
-		return service.projects.updateProject(ctx.params.id, { issueLinkTypes: types }, ctx.token ?? undefined, caller);
+		const pmCtx = await service.buildPMCtx(ProjectEndpoints.kernelKey, ctx);
+		return service.projects.updateProject(ctx.params.id, { issueLinkTypes: types }, pmCtx, ctx.token ?? undefined);
 	}
 
 	@RegisterEndpoint({
@@ -273,8 +274,8 @@ export class ProjectEndpoints {
 		const strategy = ctx.data?.priorityStrategy;
 		if (!strategy?.id) throw new ProjectManagerError(400, "INVALID_FIELD", "`priorityStrategy.id` es requerido");
 		const service = ProjectEndpoints.service;
-		const caller = await service.resolveCaller(ProjectEndpoints.kernelKey, ctx);
-		return service.projects.updateProject(ctx.params.id, { priorityStrategy: strategy }, ctx.token ?? undefined, caller);
+		const pmCtx = await service.buildPMCtx(ProjectEndpoints.kernelKey, ctx);
+		return service.projects.updateProject(ctx.params.id, { priorityStrategy: strategy }, pmCtx, ctx.token ?? undefined);
 	}
 
 	@RegisterEndpoint({
@@ -294,7 +295,7 @@ export class ProjectEndpoints {
 			throw new ProjectManagerError(400, "INVALID_FIELD", "`settings` debe ser un objeto");
 		}
 		const service = ProjectEndpoints.service;
-		const caller = await service.resolveCaller(ProjectEndpoints.kernelKey, ctx);
-		return service.projects.updateProject(ctx.params.id, { settings }, ctx.token ?? undefined, caller);
+		const pmCtx = await service.buildPMCtx(ProjectEndpoints.kernelKey, ctx);
+		return service.projects.updateProject(ctx.params.id, { settings }, pmCtx, ctx.token ?? undefined);
 	}
 }

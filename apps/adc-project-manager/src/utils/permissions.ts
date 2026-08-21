@@ -3,7 +3,7 @@ export { PMScopes as Scope } from "@common/types/project-manager/permissions.ts"
 import { PMScopes } from "@common/types/project-manager/permissions.ts";
 import { CRUDXAction } from "@common/types/Actions";
 import type { Permission } from "@common/types/identity/Permission.ts";
-import type { Project } from "@common/types/project-manager/Project.ts";
+import { type Project, SYSTEM_PROJECT_OWNER_ID } from "@common/types/project-manager/Project.ts";
 import type { Issue } from "@common/types/project-manager/Issue.ts";
 import { hasPermission } from "@common/utils/perms.ts";
 
@@ -109,6 +109,8 @@ export function canCreateOrgProject({ isAdmin, isOrgAdmin, orgId, perms }: Proje
  */
 export function canDeleteProject(perms: Permission[], project: Project | null | undefined, caller?: CallerCtx): boolean {
 	if (!project) return false;
+	// Los tableros del sistema (tickets, solicitudes de org) no se borran: el backend responde 403.
+	if (project.ownerId === SYSTEM_PROJECT_OWNER_ID) return false;
 	if (canDelete(perms, PMScopes.PROJECTS, { selfId: caller?.userId, ownerId: project.ownerId })) return true;
 	return project.visibility === "private" && !!caller?.userId && project.ownerId === caller.userId;
 }

@@ -31,14 +31,15 @@ export class IssueEndpoints {
 		options: {
 			tag: "ProjectManagerService/Issues",
 			summary: "Lista los issues de un proyecto",
-			description: "Admite filtros por sprint, milestone, assignee, columna, texto (`q`) y orden (`orderBy`). Devuelve los issues con perfiles de assignees hidratados y el proyecto.",
+			description:
+				"Admite filtros por sprint, milestone, assignee, columna, texto (`q`) y orden (`orderBy`). Devuelve los issues con perfiles de assignees hidratados y el proyecto.",
 			schema: { params: ProjectIdParams, querystring: IS.ListIssuesQuery, response: { 200: IS.IssuesListResponse } },
 		},
 	})
 	static async list(ctx: EndpointCtx<{ projectId: string }>) {
 		const service = IssueEndpoints.service;
-		const caller = await service.resolveCaller(IssueEndpoints.kernelKey, ctx);
-		const project = await service.projects.getProject(ctx.params.projectId, ctx.token ?? undefined, caller);
+		const pmCtx = await service.buildPMCtx(IssueEndpoints.kernelKey, ctx);
+		const project = await service.projects.getProject(ctx.params.projectId, pmCtx, ctx.token ?? undefined);
 		if (!project) throw new ProjectManagerError(404, "PROJECT_NOT_FOUND", "Proyecto no encontrado");
 
 		const filters: IssueListFilters = {
@@ -50,7 +51,7 @@ export class IssueEndpoints {
 			orderBy: (ctx.query.orderBy as IssueListFilters["orderBy"]) || undefined,
 		};
 
-		const issues = await service.issues.list(project, filters, ctx.token ?? undefined, caller);
+		const issues = await service.issues.list(project, pmCtx, filters, ctx.token ?? undefined);
 		await attachAssigneeProfiles(service, issues);
 		return { issues, project };
 	}
@@ -70,8 +71,8 @@ export class IssueEndpoints {
 	static async create(ctx: EndpointCtx<{ projectId: string }, Partial<Issue> & { title: string }>) {
 		if (!ctx.data?.title) throw new ProjectManagerError(400, "MISSING_FIELDS", "`title` es requerido");
 		const service = IssueEndpoints.service;
-		const caller = await service.resolveCaller(IssueEndpoints.kernelKey, ctx);
-		const project = await service.projects.getProject(ctx.params.projectId, ctx.token ?? undefined, caller);
+		const pmCtx = await service.buildPMCtx(IssueEndpoints.kernelKey, ctx);
+		const project = await service.projects.getProject(ctx.params.projectId, pmCtx, ctx.token ?? undefined);
 		if (!project) throw new ProjectManagerError(404, "PROJECT_NOT_FOUND", "Proyecto no encontrado");
 		const data = { ...ctx.data };
 		// Validar adjuntos referenciados en la descripción con el mismo criterio
@@ -88,15 +89,15 @@ export class IssueEndpoints {
 			};
 			data.description = await validateAndSanitizeIssueDescription(service, syntheticAttachmentCtx, data.description);
 		}
-		const issue = await service.issues.create(project, data, ctx.token ?? undefined, caller);
-		if (caller.userId) {
+		const issue = await service.issues.create(project, data, pmCtx, ctx.token ?? undefined);
+		if (pmCtx.userId) {
 			await service.issueDescriptionDrafts
-				.delete(caller.userId, { targetType: "pm-issue-description", targetId: issue.id })
+				.delete(pmCtx.userId, { targetType: "pm-issue-description", targetId: issue.id })
 				.catch(() => undefined);
 		}
 		// Avisos (fire-and-forget): asignados + mencionados en la descripción.
-		void service.notifications(IssueEndpoints.kernelKey).issueAssigned(issue, caller.userId);
-		void service.notifications(IssueEndpoints.kernelKey).issueMentions(issue, data.description, caller.userId);
+		void service.notifications(IssueEndpoints.kernelKey).issueAssigned(issue, pmCtx.userId);
+		void service.notifications(IssueEndpoints.kernelKey).issueMentions(issue, data.description, pmCtx.userId);
 		return await attachAssigneeProfiles(service, issue);
 	}
 
@@ -112,8 +113,8 @@ export class IssueEndpoints {
 	})
 	static async get(ctx: EndpointCtx<{ id: string }>) {
 		const service = IssueEndpoints.service;
-		const caller = await service.resolveCaller(IssueEndpoints.kernelKey, ctx);
-		const issue = await service.issues.get(ctx.params.id, ctx.token ?? undefined, caller);
+		const pmCtx = await service.buildPMCtx(IssueEndpoints.kernelKey, ctx);
+		const issue = await service.issues.get(ctx.params.id, pmCtx, ctx.token ?? undefined);
 		if (!issue) throw new ProjectManagerError(404, "ISSUE_NOT_FOUND", "Issue no encontrado");
 		return await attachAssigneeProfiles(service, issue);
 	}
@@ -132,7 +133,7 @@ export class IssueEndpoints {
 	})
 	static async update(ctx: EndpointCtx<{ id: string }, Partial<Issue> & { reason?: string }>) {
 		const service = IssueEndpoints.service;
-		const caller = await service.resolveCaller(IssueEndpoints.kernelKey, ctx);
+		const pmCtx = await service.buildPMCtx(IssueEndpoints.kernelKey, ctx);
 		const { reason, ...updates } = ctx.data ?? {};
 		// Si se actualiza la descripción, validar adjuntos contra el contexto real
 		// del issue (project + issue resueltos).
@@ -140,17 +141,17 @@ export class IssueEndpoints {
 			const built = await buildIssueResourceCtx(service, IssueEndpoints.kernelKey, ctx, { requireAuth: true });
 			updates.description = await validateAndSanitizeIssueDescription(service, built.attachmentCtx, updates.description);
 		}
-		const updated = await service.issues.update(ctx.params.id, updates, reason, ctx.token ?? undefined, caller);
-		if (caller.userId && updates.description !== undefined) {
+		const updated = await service.issues.update(ctx.params.id, updates, reason, pmCtx, ctx.token ?? undefined);
+		if (pmCtx.userId && updates.description !== undefined) {
 			await service.issueDescriptionDrafts
-				.delete(caller.userId, { targetType: "pm-issue-description", targetId: updated.id })
+				.delete(pmCtx.userId, { targetType: "pm-issue-description", targetId: updated.id })
 				.catch(() => undefined);
 		}
 		// Solo si cambió el estado/columna (no en cada edición): aviso a los participantes.
-		if (updates.columnKey !== undefined) void service.notifications(IssueEndpoints.kernelKey).issueStatusChanged(updated, caller.userId);
+		if (updates.columnKey !== undefined) void service.notifications(IssueEndpoints.kernelKey).issueStatusChanged(updated, pmCtx.userId);
 		// Mencionados en la descripción editada.
 		if (updates.description !== undefined)
-			void service.notifications(IssueEndpoints.kernelKey).issueMentions(updated, updates.description, caller.userId);
+			void service.notifications(IssueEndpoints.kernelKey).issueMentions(updated, updates.description, pmCtx.userId);
 		return await attachAssigneeProfiles(service, updated);
 	}
 
@@ -167,8 +168,8 @@ export class IssueEndpoints {
 	})
 	static async delete(ctx: EndpointCtx<{ id: string }>) {
 		const service = IssueEndpoints.service;
-		const caller = await service.resolveCaller(IssueEndpoints.kernelKey, ctx);
-		await service.issues.delete(ctx.params.id, ctx.token ?? undefined, caller);
+		const pmCtx = await service.buildPMCtx(IssueEndpoints.kernelKey, ctx);
+		await service.issues.delete(ctx.params.id, pmCtx, ctx.token ?? undefined);
 		return { ok: true };
 	}
 
@@ -180,7 +181,8 @@ export class IssueEndpoints {
 			rateLimit: ISSUE_MOVE_RATE_LIMIT,
 			tag: "ProjectManagerService/Issues",
 			summary: "Mueve un issue a otra columna",
-			description: "Si el proyecto exige comentario en la transición final, `commentBlocks` es obligatorio. El comentario se guarda con `label = \"transition-reason\"`.",
+			description:
+				'Si el proyecto exige comentario en la transición final, `commentBlocks` es obligatorio. El comentario se guarda con `label = "transition-reason"`.',
 			schema: { params: IdParams, body: IS.MoveIssueBody, response: { 200: IS.IssueResponse } },
 		},
 	})
@@ -190,7 +192,7 @@ export class IssueEndpoints {
 		if (!ctx.data?.columnKey) throw new ProjectManagerError(400, "MISSING_FIELDS", "`columnKey` es requerido");
 		const service = IssueEndpoints.service;
 		const kernelKey = IssueEndpoints.kernelKey;
-		const caller = await service.resolveCaller(kernelKey, ctx);
+		const pmCtx = await service.buildPMCtx(kernelKey, ctx);
 
 		// Pre-resolución para validar la transición y comprobar el flag del proyecto
 		// antes de mover el issue.
@@ -198,7 +200,7 @@ export class IssueEndpoints {
 		const commentBlocks = ctx.data.commentBlocks;
 		assertCommentForFinalTransition(pre.project, ctx.data.columnKey, commentBlocks);
 
-		const updated = await service.issues.move(ctx.params.id, ctx.data.columnKey, ctx.data.reason, ctx.token ?? undefined, caller);
+		const updated = await service.issues.move(ctx.params.id, ctx.data.columnKey, ctx.data.reason, pmCtx, ctx.token ?? undefined);
 
 		// Si se proporcionó un comentario (obligatorio o no), se persiste con
 		// `label = "transition-reason"` para destacarlo en el historial.
@@ -222,7 +224,7 @@ export class IssueEndpoints {
 		}
 
 		// Cambio de estado/columna: aviso a los participantes (fire-and-forget).
-		void service.notifications(IssueEndpoints.kernelKey).issueStatusChanged(updated, caller.userId);
+		void service.notifications(IssueEndpoints.kernelKey).issueStatusChanged(updated, pmCtx.userId);
 		return await attachAssigneeProfiles(service, updated);
 	}
 
@@ -238,8 +240,8 @@ export class IssueEndpoints {
 	})
 	static async history(ctx: EndpointCtx<{ id: string }>) {
 		const service = IssueEndpoints.service;
-		const caller = await service.resolveCaller(IssueEndpoints.kernelKey, ctx);
-		const issue = await service.issues.get(ctx.params.id, ctx.token ?? undefined, caller);
+		const pmCtx = await service.buildPMCtx(IssueEndpoints.kernelKey, ctx);
+		const issue = await service.issues.get(ctx.params.id, pmCtx, ctx.token ?? undefined);
 		if (!issue) throw new ProjectManagerError(404, "ISSUE_NOT_FOUND", "Issue no encontrado");
 		return { updateLog: issue.updateLog };
 	}

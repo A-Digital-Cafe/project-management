@@ -4,6 +4,7 @@ Gestión de proyectos tipo Jira: proyectos, sprints, milestones, issues, labels,
 
 - Multi-tenant (`orgId`) con proyectos globales (`orgId: null`)
 - Permisos por recurso `project-manager` (bitfield scopes)
+- Visibilidad (`utils/project-access.ts`): owner/miembro, org del token o público; ningún rol global ve tableros ajenos (sólo los de sistema, `ownerId: "system"`)
 - Integrado con `IdentityManagerService` para usuarios y grupos
 - Update log append-only, issue keys autogenerados (`PROJ-123`)
 - Kanban con columnas configurables y WIP limits (modo foco)

@@ -107,18 +107,18 @@ export function CalendarGrid({ project, issues, endDate, onOpen }: Readonly<Prop
 					type="button"
 					onClick={goPrev}
 					aria-label={t("calendar.prev")}
-					className="px-2 py-1 rounded border border-border hover:bg-surface/60"
+					className="px-2 py-1 rounded border border-divider hover:bg-surface/60"
 				>
 					←
 				</button>
-				<button type="button" onClick={goToday} className="px-2 py-1 rounded border border-border hover:bg-surface/60">
+				<button type="button" onClick={goToday} className="px-2 py-1 rounded border border-divider hover:bg-surface/60">
 					{t("calendar.today")}
 				</button>
 				<button
 					type="button"
 					onClick={goNext}
 					aria-label={t("calendar.next")}
-					className="px-2 py-1 rounded border border-border hover:bg-surface/60"
+					className="px-2 py-1 rounded border border-divider hover:bg-surface/60"
 				>
 					→
 				</button>
@@ -151,7 +151,7 @@ export function CalendarGrid({ project, issues, endDate, onOpen }: Readonly<Prop
 					return (
 						<div
 							key={key}
-							className={`border border-border rounded-md p-1.5 min-h-22.5 flex flex-col gap-1 ${cellTone} ${todayRing}`}
+							className={`border border-divider rounded-md p-1.5 min-h-22.5 flex flex-col gap-1 ${cellTone} ${todayRing}`}
 						>
 							<div className={`text-[10px] flex items-center justify-between ${isWeekend ? "text-muted" : "text-text/80"}`}>
 								<span>{day.getDate()}</span>

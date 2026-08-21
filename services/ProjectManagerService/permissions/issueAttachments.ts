@@ -4,7 +4,7 @@
 import type { AttachmentPermissionChecker } from "@utilities/attachments/attachments-utility/index.js";
 import type { Project } from "@common/types/project-manager/Project.ts";
 import type { Issue } from "@common/types/project-manager/Issue.ts";
-import { isProjectAccessibleInOrgContext, isProjectMember } from "../utils/project-access.ts";
+import { isProjectAccessibleInOrgContext, isProjectMember, isSystemBoard } from "../utils/project-access.ts";
 import type { PMCtx } from "../dao/projects.ts";
 
 export interface IssueAttachmentEndpointCtx {
@@ -22,26 +22,26 @@ function isAssignee(issue: Issue, userId: string, groupIds: string[]): boolean {
 
 /**
  * Reglas:
- * - `read`: miembro/reporter/assignee/owner del proyecto, admin global o de la org.
+ * - `read`: miembro/reporter/assignee/owner del proyecto, o admin de la org / del tablero de sistema.
  * - `write`: igual que `read` (cualquier usuario con acceso al issue puede subir).
  * - `delete`: el uploader, owner del proyecto o admin.
  *
- * El aislamiento por contexto de org aplica a todos salvo a los roles globales
+ * El aislamiento por contexto de org aplica a todos, sin excepción por rol global
  * (mismo criterio que `issueCommentsChecker`).
  */
 export const issueAttachmentsChecker: AttachmentPermissionChecker = async (action, ctx, attachment) => {
 	const c = ctx as IssueAttachmentEndpointCtx;
 	if (!c.project || !c.issue) return false;
 
-	const isGlobalPM = c.pmCtx.isGlobalAdmin || c.pmCtx.hasGlobalPMWrite;
-	if (!isGlobalPM && !isProjectAccessibleInOrgContext(c.project, c.tokenOrgId)) return false;
+	if (!isProjectAccessibleInOrgContext(c.project, c.tokenOrgId)) return false;
+	const isSystemBoardAdmin = isSystemBoard(c.project) && (c.pmCtx.isGlobalAdmin || c.pmCtx.hasGlobalPMWrite);
 
 	const groupIds = c.pmCtx.groupIds;
 	const isOwner = c.project.ownerId === c.userId;
 	const isMember = isProjectMember(c.project, { id: c.userId, groupIds }, c.tokenOrgId);
 	const isReporter = c.issue.reporterId === c.userId;
 	const isIssueAssignee = isAssignee(c.issue, c.userId, groupIds);
-	const isAdmin = isGlobalPM || (c.project.orgId ? await c.pmCtx.isOrgAdminOrPM(c.project.orgId) : false);
+	const isAdmin = isSystemBoardAdmin || (c.project.orgId ? await c.pmCtx.isOrgAdminOrPM(c.project.orgId) : false);
 
 	const baseAccess = isOwner || isMember || isReporter || isIssueAssignee || isAdmin;
 

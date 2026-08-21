@@ -5,7 +5,7 @@ import type ProjectManagerService from "../index.js";
 import type { Block } from "@common/ADC/types/learning.ts";
 import { buildIssueResourceCtx } from "./utils/issueResourceCtx.ts";
 import { validateAndSanitizeIssueDescription, ISSUE_DESCRIPTION_MAX_ATTACHMENTS } from "./utils/validateIssueDescription.ts";
-import { isProjectAccessibleInOrgContext } from "../utils/project-access.ts";
+import { isProjectAccessibleInOrgContext, isSystemBoard } from "../utils/project-access.ts";
 import * as DS from "./schemas/issueDescription.js";
 import { IdParams, OkResponse } from "./schemas/common.js";
 
@@ -20,13 +20,14 @@ interface SaveDescriptionDraftBody {
 /**
  * Determina si el caller puede editar la descripción del issue: mismo set de
  * sujetos que `IssueManager.update` (reporter / assignee directo o por grupo /
- * owner del proyecto / admin global o de la org). Bloquea si el proyecto es
- * org-scoped y el token no está en esa org.
+ * owner del proyecto / admin de la org, o rol global en un tablero de sistema).
+ * Bloquea si el proyecto es org-scoped y el token no está en esa org.
  */
 function canEditIssueDescription(commentCtx: Awaited<ReturnType<typeof buildIssueResourceCtx>>["commentCtx"]): boolean {
 	const { project, issue, userId, tokenOrgId, pmCtx } = commentCtx;
-	if (pmCtx.isGlobalAdmin || pmCtx.hasGlobalPMWrite) return true;
 	if (!isProjectAccessibleInOrgContext(project, tokenOrgId)) return false;
+	// Sólo en los tableros de sistema el rol global edita sin ser parte del issue.
+	if (isSystemBoard(project) && (pmCtx.isGlobalAdmin || pmCtx.hasGlobalPMWrite)) return true;
 	if (project.ownerId === userId) return true;
 	if (issue.reporterId === userId) return true;
 	if (issue.assigneeIds?.includes(userId)) return true;

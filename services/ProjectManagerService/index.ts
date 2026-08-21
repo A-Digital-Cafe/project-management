@@ -25,7 +25,7 @@ import { IssueCommentsEndpoints } from "./endpoints/comments.js";
 import { IssueAttachmentsEndpoints } from "./endpoints/attachments.js";
 import { OrganizationRequestEndpoints } from "./endpoints/orgRequests.js";
 import { SupportTicketEndpoints } from "./endpoints/supportTickets.js";
-import { PMScopes } from "@common/types/project-manager/permissions.ts";
+import { PMScopes, PM_RESOURCE_NAME } from "@common/types/project-manager/permissions.ts";
 import { CRUDXAction } from "@common/types/Actions.ts";
 import { OnlyKernel } from "@adc/utils/decorators/OnlyKernel.ts";
 import { Scope, assertScope, type CapabilityToken } from "@common/security/Capability.ts";
@@ -97,7 +97,12 @@ export default class ProjectManagerService extends BaseService {
 
 	/** Declara las features de PM y sus defaults en el motor de planes (fail-open). */
 	#registerPlanFeatures(): void {
-		void registerPlanFeatures(() => this.tryGetMyService<IPlanService>("PlanService"), this.getCapability(), PM_PLAN_FEATURES, PM_PLAN_DEFAULTS);
+		void registerPlanFeatures(
+			() => this.tryGetMyService<IPlanService>("PlanService"),
+			this.getCapability(),
+			PM_PLAN_FEATURES,
+			PM_PLAN_DEFAULTS
+		);
 	}
 
 	readonly #getAuthVerifier: AuthVerifierGetter = () => this.#authVerifier;
@@ -199,7 +204,10 @@ export default class ProjectManagerService extends BaseService {
 				},
 				permissionChecker: issueAttachmentsChecker,
 				kernelKey,
-				quota: { appId: "project-manager", getTracker: createQuotaTrackerGetter(() => this.tryGetMyService<IStorageQuotaService>("StorageQuotaService")) },
+				quota: {
+					appId: "project-manager",
+					getTracker: createQuotaTrackerGetter(() => this.tryGetMyService<IStorageQuotaService>("StorageQuotaService")),
+				},
 				logger: this.logger,
 			});
 
@@ -209,7 +217,8 @@ export default class ProjectManagerService extends BaseService {
 				label: "Projects",
 				computeUsage: () => issueAttachments.aggregateUsageByUser(kernelKey),
 			};
-			this.#reRegisterStorage = () => registerStorageApp(() => this.tryGetMyService<IStorageQuotaService>("StorageQuotaService"), this.getCapability(), quotaApp);
+			this.#reRegisterStorage = () =>
+				registerStorageApp(() => this.tryGetMyService<IStorageQuotaService>("StorageQuotaService"), this.getCapability(), quotaApp);
 			this.#reRegisterStorage();
 
 			this.#issueCommentsManager = commentsUtil.createCommentsManager({
@@ -306,8 +315,11 @@ export default class ProjectManagerService extends BaseService {
 		const user = caller.userId ? await identity.users.getUser(caller.userId, ctx.token ?? undefined) : null;
 		const [globalAdminRole, hasGlobalPMRead, hasGlobalPMWrite] = await Promise.all([
 			hasGlobalAdminRole(internalRoles, user),
-			identity.permissions.hasPermission(caller.userId, CRUDXAction.READ, PMScopes.PROJECTS),
-			identity.permissions.hasPermission(caller.userId, CRUDXAction.WRITE, PMScopes.PROJECTS),
+			// El `resource` NO es opcional acá: sin él, `hasPermission` chequea contra "identity",
+			// donde el scope 1 es SELF y lo tiene cualquier usuario logueado. Estos dos flags
+			// abrían el tablero de tickets y el bypass de comentarios a toda la plataforma.
+			identity.permissions.hasPermission(caller.userId, CRUDXAction.READ, PMScopes.PROJECTS, undefined, PM_RESOURCE_NAME),
+			identity.permissions.hasPermission(caller.userId, CRUDXAction.WRITE, PMScopes.PROJECTS, undefined, PM_RESOURCE_NAME),
 		]);
 		const isGlobalAdmin = !tokenOrgId && globalAdminRole;
 

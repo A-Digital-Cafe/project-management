@@ -29,8 +29,8 @@ export class MilestoneEndpoints {
 	})
 	static async list(ctx: EndpointCtx<{ projectId: string }>) {
 		const service = MilestoneEndpoints.service;
-		const caller = await service.resolveCaller(MilestoneEndpoints.kernelKey, ctx);
-		return { milestones: await service.milestones.list(ctx.params.projectId, ctx.token ?? undefined, caller) };
+		const pmCtx = await service.buildPMCtx(MilestoneEndpoints.kernelKey, ctx);
+		return { milestones: await service.milestones.list(ctx.params.projectId, pmCtx, ctx.token ?? undefined) };
 	}
 
 	@RegisterEndpoint({
@@ -48,8 +48,8 @@ export class MilestoneEndpoints {
 	static async create(ctx: EndpointCtx<{ projectId: string }, Partial<Milestone> & { name: string }>) {
 		if (!ctx.data?.name) throw new ProjectManagerError(400, "MISSING_FIELDS", "`name` es requerido");
 		const service = MilestoneEndpoints.service;
-		const caller = await service.resolveCaller(MilestoneEndpoints.kernelKey, ctx);
-		return service.milestones.create(ctx.params.projectId, ctx.data, ctx.token ?? undefined, caller);
+		const pmCtx = await service.buildPMCtx(MilestoneEndpoints.kernelKey, ctx);
+		return service.milestones.create(ctx.params.projectId, ctx.data, pmCtx, ctx.token ?? undefined);
 	}
 
 	@RegisterEndpoint({
@@ -65,8 +65,8 @@ export class MilestoneEndpoints {
 	})
 	static async update(ctx: EndpointCtx<{ id: string }, Partial<Milestone>>) {
 		const service = MilestoneEndpoints.service;
-		const caller = await service.resolveCaller(MilestoneEndpoints.kernelKey, ctx);
-		return service.milestones.update(ctx.params.id, ctx.data ?? {}, ctx.token ?? undefined, caller);
+		const pmCtx = await service.buildPMCtx(MilestoneEndpoints.kernelKey, ctx);
+		return service.milestones.update(ctx.params.id, ctx.data ?? {}, pmCtx, ctx.token ?? undefined);
 	}
 
 	@RegisterEndpoint({
@@ -82,8 +82,8 @@ export class MilestoneEndpoints {
 	})
 	static async delete(ctx: EndpointCtx<{ id: string }>) {
 		const service = MilestoneEndpoints.service;
-		const caller = await service.resolveCaller(MilestoneEndpoints.kernelKey, ctx);
-		await service.milestones.delete(ctx.params.id, ctx.token ?? undefined, caller);
+		const pmCtx = await service.buildPMCtx(MilestoneEndpoints.kernelKey, ctx);
+		await service.milestones.delete(ctx.params.id, pmCtx, ctx.token ?? undefined);
 		return { ok: true };
 	}
 }

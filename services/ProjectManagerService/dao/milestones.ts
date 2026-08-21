@@ -6,12 +6,13 @@ import { type AuthVerifierGetter, PermissionChecker } from "@common/types/auth-v
 import { PMScopes, PM_RESOURCE_NAME } from "@common/types/project-manager/permissions.ts";
 import { CRUDXAction } from "@common/types/Actions.ts";
 import { ProjectManagerError } from "@common/types/custom-errors/ProjectManagerError.ts";
-import type { CallerMembership, ProjectInternals } from "./projects.ts";
+import type { PMCtx, ProjectInternals } from "./projects.ts";
 import type { Project } from "@common/types/project-manager/Project.ts";
 import type { PMTierResolver } from "../utils/tier-resolver.ts";
 import {
 	docToPlain,
 	fetchEntityWithProject,
+	assertProjectVisible,
 	projectMemberAllowIf,
 	projectOwnerAllowIf,
 	requireProject,
@@ -36,8 +37,8 @@ export class MilestoneManager {
 		this.#permissionChecker = new PermissionChecker(getAuthVerifier, "MilestoneManager", PM_RESOURCE_NAME);
 	}
 
-	#projectMemberAllowIf(project: Project | null, caller?: CallerMembership) {
-		return projectMemberAllowIf(project, caller);
+	#projectMemberAllowIf(project: Project | null, ctx: PMCtx) {
+		return projectMemberAllowIf(project, ctx);
 	}
 
 	async #requireProject(projectId: string): Promise<Project> {
@@ -49,17 +50,13 @@ export class MilestoneManager {
 		return { milestone: entity, project };
 	}
 
-	async create(
-		projectId: string,
-		input: Partial<Milestone> & Pick<Milestone, "name">,
-		token?: string,
-		caller?: CallerMembership
-	): Promise<Milestone> {
+	async create(projectId: string, input: Partial<Milestone> & Pick<Milestone, "name">, ctx: PMCtx, token?: string): Promise<Milestone> {
 		const project = await this.#requireProject(projectId);
 		await this.#permissionChecker.requirePermission(token, CRUDXAction.WRITE, PMScopes.MILESTONES, {
 			ownerId: project.ownerId,
-			allowIf: projectOwnerAllowIf(project, caller),
+			allowIf: projectOwnerAllowIf(project, ctx),
 		});
+		assertProjectVisible(project, ctx);
 
 		const { maxMilestonesPerProject } = await this.tierResolver.projectLimits(project);
 		const count = await this.milestoneModel.countDocuments({ projectId });
@@ -82,47 +79,51 @@ export class MilestoneManager {
 		return milestone;
 	}
 
-	async list(projectId: string, token?: string, caller?: CallerMembership): Promise<Milestone[]> {
+	async list(projectId: string, ctx: PMCtx, token?: string): Promise<Milestone[]> {
 		const project = await this.#requireProject(projectId);
 		await this.#permissionChecker.requirePermission(token, CRUDXAction.READ, PMScopes.MILESTONES, {
 			ownerId: project.ownerId,
-			allowIf: this.#projectMemberAllowIf(project, caller),
+			allowIf: this.#projectMemberAllowIf(project, ctx),
 		});
+		assertProjectVisible(project, ctx);
 		const docs = await this.milestoneModel.find({ projectId });
 		return docs.map((d) => docToPlain<Milestone>(d)!);
 	}
 
-	async get(milestoneId: string, token?: string, caller?: CallerMembership): Promise<Milestone | null> {
+	async get(milestoneId: string, ctx: PMCtx, token?: string): Promise<Milestone | null> {
 		const { milestone, project } = await this.#fetchMilestoneAndProject(milestoneId);
 		await this.#permissionChecker.requirePermission(token, CRUDXAction.READ, PMScopes.MILESTONES, {
 			ownerId: project?.ownerId,
-			allowIf: this.#projectMemberAllowIf(project, caller),
+			allowIf: this.#projectMemberAllowIf(project, ctx),
 		});
+		assertProjectVisible(project, ctx);
 		return milestone;
 	}
 
-	async update(milestoneId: string, updates: Partial<Milestone>, token?: string, caller?: CallerMembership): Promise<Milestone> {
+	async update(milestoneId: string, updates: Partial<Milestone>, ctx: PMCtx, token?: string): Promise<Milestone> {
 		const { milestone, project } = await this.#fetchMilestoneAndProject(milestoneId);
 		if (!milestone) throw new ProjectManagerError(404, "MILESTONE_NOT_FOUND", `Milestone ${milestoneId} no encontrado`);
 		// Update sobre milestones: rol PM / permiso formal, o owner del proyecto.
 		await this.#permissionChecker.requirePermission(token, CRUDXAction.UPDATE, PMScopes.MILESTONES, {
 			ownerId: project?.ownerId,
-			allowIf: projectOwnerAllowIf(project, caller),
+			allowIf: projectOwnerAllowIf(project, ctx),
 		});
+		assertProjectVisible(project, ctx);
 		const safe = stripImmutableFields(updates, MILESTONE_IMMUTABLE_FIELDS);
 		const updated = await this.milestoneModel.findOneAndUpdate({ id: milestoneId }, safe, { new: true });
 		if (!updated) throw new ProjectManagerError(404, "MILESTONE_NOT_FOUND", `Milestone ${milestoneId} no encontrado`);
 		return docToPlain<Milestone>(updated)!;
 	}
 
-	async delete(milestoneId: string, token?: string, caller?: CallerMembership): Promise<void> {
+	async delete(milestoneId: string, ctx: PMCtx, token?: string): Promise<void> {
 		const { milestone, project } = await this.#fetchMilestoneAndProject(milestoneId);
 		// Auth-first: no revelamos existencia ante usuarios no autorizados.
 		await this.#permissionChecker.requirePermission(token, CRUDXAction.DELETE, PMScopes.MILESTONES, {
 			ownerId: project?.ownerId,
 			// Delete es más restrictivo: sólo owner del proyecto (o permiso global).
-			allowIf: projectOwnerAllowIf(project, caller),
+			allowIf: projectOwnerAllowIf(project, ctx),
 		});
+		assertProjectVisible(project, ctx);
 		if (!milestone) throw new ProjectManagerError(404, "MILESTONE_NOT_FOUND", `Milestone ${milestoneId} no encontrado`);
 		const result = await this.milestoneModel.deleteOne({ id: milestoneId });
 		if (result.deletedCount === 0) throw new ProjectManagerError(404, "MILESTONE_NOT_FOUND", `Milestone ${milestoneId} no encontrado`);

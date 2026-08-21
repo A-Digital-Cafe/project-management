@@ -42,7 +42,7 @@ export function CustomFieldInput({ def, value, onSet, disabled }: Readonly<Props
 			{def.type === "date" && (
 				<input
 					type="date"
-					className="w-full border border-border rounded-md px-2 py-1 text-sm bg-surface text-text"
+					className="w-full border border-divider rounded-md px-2 py-1 text-sm bg-surface text-text"
 					value={toDateInput(value)}
 					onChange={(e) => onSet(e.target.value ? new Date(e.target.value) : null)}
 					disabled={disabled}

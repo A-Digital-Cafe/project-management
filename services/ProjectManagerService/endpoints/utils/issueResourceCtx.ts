@@ -35,14 +35,15 @@ export async function buildIssueResourceCtx(
 		throw new AuthError(401, "UNAUTHORIZED", "Authentication required");
 	}
 
-	const caller = await service.resolveCaller(kernelKey, ctx);
-	const issue = await service.issues.get(issueId, ctx.token ?? undefined, caller);
+	const pmCtx = await service.buildPMCtx(kernelKey, ctx);
+	const issue = await service.issues.get(issueId, pmCtx, ctx.token ?? undefined);
 	if (!issue) throw new ProjectManagerError(404, "ISSUE_NOT_FOUND", `Issue ${issueId} no encontrado`);
 
-	const project = await service.projects.getProject(issue.projectId, ctx.token ?? undefined, caller);
+	// `grantedByIssue`: el acceso al issue ya se autorizó arriba (incluye al asignado que no
+	// es miembro del tablero); acá el proyecto es sólo el contexto de ese issue.
+	const project = await service.projects.getProject(issue.projectId, pmCtx, ctx.token ?? undefined, { grantedByIssue: true });
 	if (!project) throw new ProjectManagerError(404, "PROJECT_NOT_FOUND", `Proyecto ${issue.projectId} no encontrado`);
 
-	const pmCtx = await service.buildPMCtx(kernelKey, ctx);
 	const userId = ctx.user?.id ?? "";
 	const tokenOrgId = ctx.user?.orgId ?? null;
 	const authorName = ctx.user?.username;

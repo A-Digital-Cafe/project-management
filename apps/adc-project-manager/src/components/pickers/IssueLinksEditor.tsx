@@ -52,7 +52,7 @@ export function IssueLinksEditor({ linkTypes, currentIssueId, allIssues, value, 
 						return (
 							<li
 								key={`${link.linkTypeId}:${link.targetIssueId}`}
-								className="flex items-center gap-2 p-1.5 border border-border rounded-md bg-surface text-sm"
+								className="flex items-center gap-2 p-1.5 border border-divider rounded-md bg-surface text-sm"
 							>
 								{type && (
 									<adc-color-label color={type.color} size="xs">

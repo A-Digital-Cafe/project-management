@@ -14,7 +14,7 @@ interface Props {
 export function BadgeOptionRow({ option, disabled, onName, onColor, onRemove }: Readonly<Props>) {
 	const { t } = useTranslation({ namespace: "adc-project-manager" });
 	return (
-		<li className="flex items-center gap-2 p-1.5 border border-border rounded-md bg-surface">
+		<li className="flex items-center gap-2 p-1.5 border border-divider rounded-md bg-surface">
 			<adc-input value={option.name} onInput={(e: any) => onName(e.target.value)} disabled={disabled} />
 			<div className="flex flex-wrap gap-1">
 				{LABEL_COLORS.map((c) => (
