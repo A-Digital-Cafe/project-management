@@ -15,7 +15,7 @@ export function IssueDescriptionEditor({ desc, canEdit }: Readonly<Props>) {
 			{desc.hasUnsavedDraft && !desc.editing && (
 				<button
 					type="button"
-					className="w-full text-left mb-2 px-3 py-2 rounded-md border border-warning bg-warning/10 text-warning text-sm hover:bg-warning/15 cursor-pointer"
+					className="w-full text-left mb-2 px-3 py-2 rounded-md border border-twarn/30 bg-warn text-twarn text-sm hover:bg-warn/80 cursor-pointer"
 					onClick={desc.resumeDraft}
 				>
 					{t("issues.descriptionUnsavedChanges") ?? "Tienes cambios sin guardar — clic para retomar"}
